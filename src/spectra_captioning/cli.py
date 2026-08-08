@@ -93,7 +93,7 @@ def run_crossmatch() -> None:
     if df.empty:
         return
         
-    group_col = "wiki_entity_id" if "wiki_entity_id" in df.columns else "mention_id"
+    group_col = "wiki_entity_id"
     groups = df.groupby(group_col)
     
     print(f"Grouped into {len(groups)} distinct objects.")
@@ -182,7 +182,7 @@ def run_captioning() -> None:
         print("Crossmatch dataframe is empty.")
         sys.exit(0)
         
-    group_col = "wiki_entity_id" if "wiki_entity_id" in df.columns else "mention_id"
+    group_col = "wiki_entity_id"
     groups = list(df.groupby(group_col))
 
     if not groups:
