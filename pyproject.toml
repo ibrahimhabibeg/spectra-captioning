@@ -5,17 +5,18 @@ description = "Generate spectra-aligned captions from astronomical paper mention
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "lsdb",
-    "google-genai",
-    "python-dotenv",
-    "jinja2",
-    "pyyaml",
-    "huggingface_hub[hf_transfer]",
+  "google-genai",
+  "huggingface_hub[hf_transfer]",
+  "ipykernel>=7.3.0",
+  "jinja2",
+  "lsdb",
+  "python-dotenv",
+  "pyyaml",
 ]
 
 [project.scripts]
-crossmatch = "spectra_captioning.cli:run_crossmatch"
 caption = "spectra_captioning.cli:run_captioning"
+crossmatch = "spectra_captioning.cli:run_crossmatch"
 
 [build-system]
 requires = ["hatchling"]

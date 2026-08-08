@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-from spectra_captioning.data.grouping import ObjectRecord
+from spectra_captioning.data.grouping import extract_quotes
 from spectra_captioning.data.preprocessing import clean_quotes
 from spectra_captioning.models.gemini import GeminiClient
 from spectra_captioning.strategies.base import (
@@ -47,22 +48,23 @@ class QuotesOnlyStrategy(CaptionStrategy):
         return "quotes_only_v1"
 
     def generate_caption(
-        self, obj: ObjectRecord, config: dict
+        self, object_key: str, group_df: pd.DataFrame, dataset: str, config: dict
     ) -> CaptionResult:
         """Generate a caption from the object's aggregated quotes.
 
         Steps:
-        1. Clean quotes (strip names, deduplicate).
-        2. Render the Jinja2 prompt template.
-        3. Call Gemini via the Interactions API.
-        4. Return a CaptionResult.
+        1. Extract and deduplicate quotes from the group dataframe.
+        2. Filter out trivial/short quotes.
+        3. Render the Jinja2 prompt template.
+        4. Call Gemini via the Interactions API.
+        5. Return a CaptionResult.
         """
-        # Clean quotes: strip names, deduplicate, filter short ones.
-        cleaned_quotes = clean_quotes(obj.all_quotes, obj.all_names)
+        all_quotes = extract_quotes(group_df)
+        cleaned_quotes = clean_quotes(all_quotes)
 
         if not cleaned_quotes:
             logger.warning(
-                "Object %s has no usable quotes after cleaning.", obj.object_key
+                "Object %s has no usable quotes after cleaning.", object_key
             )
             return CaptionResult(
                 caption="INSUFFICIENT_SPECTRAL_DATA",
@@ -74,7 +76,7 @@ class QuotesOnlyStrategy(CaptionStrategy):
 
         logger.info(
             "Generating caption for object %s (%d quotes, prompt ~%d chars)...",
-            obj.object_key,
+            object_key,
             len(cleaned_quotes),
             len(prompt),
         )
@@ -84,7 +86,7 @@ class QuotesOnlyStrategy(CaptionStrategy):
 
         logger.info(
             "Caption generated for %s: %d tokens used.",
-            obj.object_key,
+            object_key,
             response.total_tokens,
         )
 

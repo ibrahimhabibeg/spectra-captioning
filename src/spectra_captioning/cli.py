@@ -90,18 +90,13 @@ def run_crossmatch() -> None:
     print(f"Crossmatch complete: {len(df)} rows.")
     print(f"Columns: {list(df.columns)}")
 
-    # Show a quick summary.
-    objects = group_by_object(df, dataset=args.dataset)
-    print(f"Grouped into {len(objects)} distinct objects with quotes.")
-    for obj in objects[:5]:
-        print(
-            f"  {obj.object_key}: "
-            f"{len(obj.observations)} obs, "
-            f"{len(obj.mentions)} mentions, "
-            f"{len(obj.all_quotes)} quotes"
-        )
-    if len(objects) > 5:
-        print(f"  ... and {len(objects) - 5} more.")
+    if df.empty:
+        return
+        
+    group_col = "wiki_entity_id" if "wiki_entity_id" in df.columns else "mention_id"
+    groups = df.groupby(group_col)
+    
+    print(f"Grouped into {len(groups)} distinct objects.")
 
 
 # ------------------------------------------------------------------
@@ -183,17 +178,21 @@ def run_captioning() -> None:
     df = _run_crossmatch(config, dataset=args.dataset)
 
     # Step 2: Group by object.
-    logger.info("Grouping by object...")
-    objects = group_by_object(df, dataset=args.dataset)
+    if df.empty:
+        print("Crossmatch dataframe is empty.")
+        sys.exit(0)
+        
+    group_col = "wiki_entity_id" if "wiki_entity_id" in df.columns else "mention_id"
+    groups = list(df.groupby(group_col))
 
-    if not objects:
-        print("No objects with quotes found after crossmatch + grouping.")
+    if not groups:
+        print("No objects found after crossmatch grouping.")
         sys.exit(0)
 
     # Apply limit.
-    if limit and limit < len(objects):
-        logger.info("Limiting to %d objects (of %d available).", limit, len(objects))
-        objects = objects[:limit]
+    if limit and limit < len(groups):
+        logger.info("Limiting to %d objects (of %d available).", limit, len(groups))
+        groups = groups[:limit]
 
     # Step 3: Initialize Gemini client and strategy.
     logger.info("Using model: %s, strategy: %s", model_name, strategy_name)
@@ -218,21 +217,20 @@ def run_captioning() -> None:
     successful = 0
     insufficient = 0
 
-    for i, obj in enumerate(objects, 1):
-        print(
-            f"[{i}/{len(objects)}] Captioning {obj.object_key} "
-            f"({len(obj.all_quotes)} quotes, {len(obj.observations)} obs)..."
-        )
+    for i, (object_key, group_df) in enumerate(groups, 1):
+        object_key = str(object_key)
+        print(f"[{i}/{len(groups)}] Captioning {object_key} ({len(group_df)} crossmatch rows)...")
 
         try:
-            result: CaptionResult = strategy.generate_caption(obj, config)
+            result: CaptionResult = strategy.generate_caption(object_key, group_df, args.dataset, config)
         except Exception as exc:
-            logger.error("Failed to caption %s: %s", obj.object_key, exc)
+            logger.error("Failed to caption %s: %s", object_key, exc)
             continue
 
         # Build and write the output record.
         record = build_output_record(
-            obj=obj,
+            object_key=object_key,
+            group_df=group_df,
             result=result,
             strategy_name=strategy.strategy_name,
             model=model_name,

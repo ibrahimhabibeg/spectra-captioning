@@ -7,15 +7,17 @@ import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+import pandas as pd
 
-from spectra_captioning.data.grouping import ObjectRecord
 from spectra_captioning.strategies.base import CaptionResult
+from spectra_captioning.data.grouping import extract_quotes
 
 logger = logging.getLogger(__name__)
 
 
 def build_output_record(
-    obj: ObjectRecord,
+    object_key: str,
+    group_df: pd.DataFrame,
     result: CaptionResult,
     strategy_name: str,
     model: str,
@@ -25,24 +27,31 @@ def build_output_record(
     """Build the full output record for one captioned object.
 
     This record contains everything needed for downstream use:
-    provenance, observations, the caption itself, thought summaries,
+    provenance, coordinates, the caption itself, thought summaries,
     and token usage.
     """
+    ra_val = group_df.iloc[0].get("ra_mentions")
+    if ra_val is None or pd.isna(ra_val): ra_val = group_df.iloc[0].get("ra", 0.0)
+    dec_val = group_df.iloc[0].get("dec_mentions")
+    if dec_val is None or pd.isna(dec_val): dec_val = group_df.iloc[0].get("dec", 0.0)
+    
+    all_quotes = extract_quotes(group_df)
+    
     return {
-        "object_key": obj.object_key,
+        "object_key": object_key,
         "dataset_source": dataset,
+        "ra": float(ra_val),
+        "dec": float(dec_val),
         "strategy": strategy_name,
         "model": model,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         # Input summary.
         "input": {
-            "num_quotes": len(obj.all_quotes),
-            "num_mentions": len(obj.mentions),
-            "num_observations": len(obj.observations),
-            "quotes_text_preview": obj.all_quotes[:3],
+            "num_quotes": len(all_quotes),
+            "num_mentions": group_df["mention_id"].nunique() if "mention_id" in group_df else 1,
+            "quotes_text_preview": all_quotes[:3],
+            "all_quotes": all_quotes,
         },
-        # All observations of this object (for the GUI).
-        "observations": [asdict(o) for o in obj.observations],
         # Caption output.
         "output": {
             "caption": result.caption,
@@ -58,14 +67,6 @@ def build_output_record(
         },
         # Provenance for reproducibility.
         "provenance": {
-            "mentions": [
-                {
-                    "mention_id": m.mention_id,
-                    "arxiv_id": m.arxiv_id,
-                    "quote_count": m.quote_count,
-                }
-                for m in obj.mentions
-            ],
             "crossmatch_radius_arcsec": config["crossmatch"]["radius_arcsec"],
             "prompt_template": strategy_name,
         },

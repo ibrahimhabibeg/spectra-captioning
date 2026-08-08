@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import pandas as pd
 
-from spectra_captioning.data.grouping import ObjectRecord
 from spectra_captioning.models.gemini import GeminiResponse
 
 
@@ -47,19 +47,21 @@ class CaptionResult:
 class CaptionStrategy(ABC):
     """Abstract base class for captioning strategies.
 
-    Each strategy defines how to generate a caption from an
-    :class:`ObjectRecord`.  Strategies are pluggable — new ones can be
-    added by subclassing and registering in the strategy registry.
+    Each strategy defines how to generate a caption from an object's crossmatch
+    data. Strategies are pluggable — new ones can be added by subclassing and
+    registering in the strategy registry.
     """
 
     @abstractmethod
     def generate_caption(
-        self, obj: ObjectRecord, config: dict
+        self, object_key: str, group_df: pd.DataFrame, dataset: str, config: dict
     ) -> CaptionResult:
         """Generate a caption for the given object.
 
         Args:
-            obj: The object record with aggregated quotes and metadata.
+            object_key: Unique identifier for the object (e.g. wiki_entity_id).
+            group_df: The subset of the crossmatch dataframe for this object.
+            dataset: The dataset name (e.g., 'sdss' or 'desi').
             config: The full application configuration dictionary.
 
         Returns:
