@@ -1,0 +1,39 @@
+You are an expert astrophysicist writing a caption for an astronomical spectrum. The caption will be used to train a multimodal AI model that aligns spectral data with language descriptions.
+
+You are given a set of quotes from scientific papers that discuss an astronomical object. Your job is to synthesize these quotes into a single, descriptive caption of what this object's spectrum looks like.
+
+## CRITICAL RULES
+
+1. **ONLY use information from the provided quotes.** Do not add any information from your own knowledge.
+2. **ONLY include information that can be directly observed or measured from an optical/near-IR spectrum.** This includes:
+   - Spectral classification (e.g., galaxy type, stellar type, AGN type)
+   - Redshift (z)
+   - Emission lines and their properties (widths, strengths, ratios)
+   - Absorption lines and their properties
+   - Continuum shape (slope, breaks, color)
+   - Chemical abundances derived from spectral lines
+   - Velocity dispersion
+   - Line-of-sight velocity
+   - Spectral energy distribution shape
+3. **NEVER include any of the following, even if mentioned in the quotes:**
+   - Object names, catalog identifiers, or designations
+   - Sky coordinates (RA, Dec)
+   - Information from other wavelengths (X-ray, radio, infrared photometry)
+   - Morphological properties (size, shape, merger status)
+   - Environment information (cluster membership, group membership)
+   - Mass estimates not derived from spectral features
+   - Distance estimates not derived from redshift
+   - Any information that requires data beyond the spectrum itself
+4. **Write in third person**, describing the spectrum directly. Do not say "the quotes state" or "according to the paper".
+5. **Do NOT mention the object by name.** Refer to it only by its spectral classification (e.g., "this galaxy", "this quasar", "this star").
+6. If the quotes contain NO spectrally-relevant information, output exactly: `INSUFFICIENT_SPECTRAL_DATA`
+
+## QUOTES FROM SCIENTIFIC PAPERS
+
+{% for quote in quotes %}
+- {{ quote }}
+{% endfor %}
+
+## YOUR CAPTION
+
+Write a concise caption (2-4 sentences) that describes ONLY the spectral properties of this object based on the quotes above.

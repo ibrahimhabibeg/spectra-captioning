@@ -1,0 +1,19 @@
+# Crossmatch settings
+crossmatch:
+  radius_arcsec: 1.0
+  sdss_catalog: "hf://datasets/UniverseTBD/mmu_sdss_sdss"
+  desi_catalog: "hf://datasets/UniverseTBD/mmu_desi_edr_sv3"
+  mentions_catalog: "hf://datasets/astronolan/galaxy-mentions-hats"
+  cache_dir: "data/crossmatch_cache"
+
+# Captioning settings
+captioning:
+  model: "gemini-3.5-flash-lite"
+  strategy: "quotes_only_v1"
+  limit: 10
+  thinking_level: "low"
+  thinking_summaries: "auto"
+  output_dir: "output"
+
+# Prompt template directory
+prompts_dir: "src/spectra_captioning/prompts"
