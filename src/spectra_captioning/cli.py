@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 
 from spectra_captioning.config import apply_overrides, load_config
 from spectra_captioning.data.crossmatch import run_crossmatch as _run_crossmatch
-from spectra_captioning.data.grouping import group_by_object
 from spectra_captioning.models.gemini import GeminiClient
 from spectra_captioning.output import (
     append_to_jsonl,
