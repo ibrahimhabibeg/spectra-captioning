@@ -47,8 +47,8 @@ def build_output_record(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         # Input summary.
         "input": {
+            "num_quotes": len(all_quotes),
             "num_mentions": group_df["mention_id"].nunique() if "mention_id" in group_df else 1,
-            "all_quotes": all_quotes,
         },
         # Caption output.
         "output": {
