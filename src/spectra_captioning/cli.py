@@ -25,8 +25,9 @@ from spectra_captioning.output import (
 )
 from spectra_captioning.strategies.base import CaptionResult
 
-# Ensure quotes_only is imported so the @register_strategy decorator runs.
-import spectra_captioning.strategies.quotes_only  # noqa: F401
+# Ensure all strategies are imported so @register_strategy decorators run.
+import spectra_captioning.strategies.quotes_only 
+import spectra_captioning.strategies.spectra_image
 from spectra_captioning.strategies.base import get_strategy
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,11 @@ def run_captioning() -> None:
         default=None,
         help="Path to config YAML (default: config.yaml).",
     )
+    parser.add_argument(
+        "--save-plots",
+        action="store_true",
+        help="Save rendered spectra plot PNG images to output/plots/.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -151,6 +157,8 @@ def run_captioning() -> None:
         overrides["captioning.model"] = args.model
     if args.limit is not None:
         overrides["captioning.limit"] = args.limit
+    if args.save_plots:
+        overrides["captioning.save_plots"] = True
     if overrides:
         config = apply_overrides(config, overrides)
 

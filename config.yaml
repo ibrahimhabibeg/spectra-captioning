@@ -11,7 +11,7 @@ captioning:
   model: "gemini-3.5-flash-lite"
   strategy: "quotes_only_v1"
   limit: 10
-  thinking_level: "low"
+  thinking_level: "high"
   thinking_summaries: "auto"
   output_dir: "output"
 

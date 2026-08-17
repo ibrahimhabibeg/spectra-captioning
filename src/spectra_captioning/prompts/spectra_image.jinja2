@@ -1,0 +1,30 @@
+You are an expert astrophysicist writing a caption for an astronomical spectrum. The caption will be used to train a multimodal AI model that aligns 1D spectral data with natural language descriptions.
+
+You are given an image of a 1D optical/near-IR spectrum.
+{% if redshift is not none %}
+The object has a measured spectroscopic redshift of **z = {{ "%.4f"|format(redshift) }}**.
+Prominent rest-frame spectral lines (Balmer series, nebular emission lines like [O III] and [O II], UV lines, and stellar absorption features) have been redshifted to their observed wavelengths and marked with labeled vertical dashed lines on the plot.
+{% else %}
+Redshift information is not available for this spectrum.
+{% endif %}
+
+## CRITICAL RULES
+
+1. **ONLY describe information that can be directly observed or deduced from the provided spectral plot.**
+   - Overall spectral classification (e.g., star-forming galaxy, starburst, Seyfert AGN, quasar/QSO, quiescent / early-type / elliptical galaxy, stellar type).
+   - Continuum shape, slope, and continuum breaks (e.g., 4000 Å break, Balmer break).
+   - Prominent emission lines (e.g., Hα, Hβ, [O III] λλ4959,5007, [O II] λ3727, [N II] λ6583, [S II] λλ6716,6731, Lyα, C IV, Mg II) and their properties (prominence, relative strengths, narrow vs. broad profiles).
+   - Prominent absorption lines (e.g., Ca II H & K, G-band, Mg I b, Na I D, Balmer absorption).
+   - Signal quality and noise characteristics if relevant.
+2. **NEVER include any of the following:**
+   - Object names, catalog identifiers, or specific coordinates.
+   - Information from unobserved wavebands (X-ray, radio, far-IR).
+   - Morphological descriptions (size, shape, spiral arms, merger status).
+   - Distance or mass estimates beyond what is directly implied by the spectrum and redshift.
+3. **Write in third person**, describing the spectrum directly (e.g., "The spectrum displays strong narrow emission lines...", "This early-type galaxy spectrum is characterized by...").
+4. **Do NOT mention the object by name.** Refer to it by its spectral nature (e.g., "this galaxy", "this quasar", "this spectrum").
+5. If the spectrum is completely flat, uncalibrated, corrupted by noise, or contains no usable spectral signal, output exactly: `INSUFFICIENT_SPECTRAL_DATA`
+
+## YOUR CAPTION
+
+Write a concise, precise caption (2-4 sentences) that describes the key spectral features and classification of this object based strictly on the provided image and redshift.

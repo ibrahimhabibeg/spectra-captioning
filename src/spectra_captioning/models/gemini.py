@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from google import genai
 
@@ -34,10 +35,11 @@ class GeminiResponse:
 
 
 class GeminiClient:
-    """Wrapper around the Google GenAI Interactions API.
+    """Wrapper around Google GenAI APIs supporting text and multimodal inputs.
 
-    Falls back to ``models.generate_content`` for models that do not
-    support the Interactions API (e.g. Gemma 4 on-device models).
+    Prefers the Interactions API for text-only workflows when supported, and
+    uses ``models.generate_content`` with Part objects for multimodal inputs
+    (images, spectra plots) and fallback calls.
     """
 
     def __init__(
@@ -52,12 +54,18 @@ class GeminiClient:
         self.thinking_level = thinking_level
         self.thinking_summaries = thinking_summaries
 
-    def generate(self, prompt: str) -> GeminiResponse:
-        """Generate content using the Interactions API.
+    def generate(
+        self, prompt: str, images: list[bytes] | None = None
+    ) -> GeminiResponse:
+        """Generate content from a prompt and optional image bytes.
 
-        Tries the Interactions API first; falls back to
-        ``generate_content`` if it fails.
+        If images are provided, uses ``models.generate_content`` with multimodal
+        Part objects. If text-only, attempts the Interactions API first with a
+        fallback to ``models.generate_content``.
         """
+        if images:
+            return self._generate_via_generate_content(prompt, images=images)
+
         try:
             return self._generate_via_interactions(prompt)
         except Exception as exc:
@@ -68,7 +76,7 @@ class GeminiClient:
             return self._generate_via_generate_content(prompt)
 
     # ------------------------------------------------------------------
-    # Interactions API (preferred)
+    # Interactions API (text-only preferred)
     # ------------------------------------------------------------------
 
     def _generate_via_interactions(self, prompt: str) -> GeminiResponse:
@@ -114,23 +122,54 @@ class GeminiClient:
         )
 
     # ------------------------------------------------------------------
-    # Fallback: generate_content
+    # Fallback / Multimodal: generate_content
     # ------------------------------------------------------------------
 
-    def _generate_via_generate_content(self, prompt: str) -> GeminiResponse:
+    def _generate_via_generate_content(
+        self, prompt: str, images: list[bytes] | None = None
+    ) -> GeminiResponse:
+        from google.genai import types
+
+        contents: list[Any] = [prompt]
+        if images:
+            for img in images:
+                contents.append(types.Part.from_bytes(data=img, mime_type="image/png"))
+
+        config_kwargs: dict[str, Any] = {}
+        if self.thinking_level:
+            try:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(
+                    thinking_level=self.thinking_level
+                )
+            except Exception:
+                pass
+
+        config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+
         response = self.client.models.generate_content(
             model=self.model,
-            contents=prompt,
+            contents=contents,
+            config=config,
         )
 
+        thought_summaries: list[str] = []
         text = response.text or ""
-        usage = response.usage_metadata
 
+        # Extract thought summaries from candidate parts if present
+        if response.candidates:
+            cand = response.candidates[0]
+            if cand.content and cand.content.parts:
+                for part in cand.content.parts:
+                    if getattr(part, "thought", False) and getattr(part, "text", None):
+                        thought_summaries.append(part.text)
+
+        usage = response.usage_metadata
         return GeminiResponse(
             text=text.strip(),
-            thought_summaries=[],
+            thought_summaries=thought_summaries,
             input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
             output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
-            thought_tokens=None,
+            thought_tokens=getattr(usage, "candidates_thought_token_count", None)
+            or getattr(usage, "thought_token_count", None),
             total_tokens=getattr(usage, "total_token_count", 0) or 0,
         )

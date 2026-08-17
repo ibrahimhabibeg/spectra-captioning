@@ -13,5 +13,5 @@ wheels/
 .env
 
 # Data and output (large files, generated)
-data/
-output/
+/data/
+/output/

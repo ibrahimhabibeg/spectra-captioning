@@ -8,8 +8,11 @@ dependencies = [
   "google-genai",
   "huggingface_hub[hf_transfer]",
   "ipykernel>=7.3.0",
+  "ipywidgets>=8.1.8",
   "jinja2",
   "lsdb",
+  "matplotlib>=3.9.0",
+  "pillow>=10.0.0",
   "python-dotenv",
   "pyyaml",
 ]
