@@ -13,6 +13,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 from dotenv import load_dotenv
 
 from spectra_captioning.config import apply_overrides, load_config
@@ -26,8 +27,8 @@ from spectra_captioning.output import (
 from spectra_captioning.strategies.base import CaptionResult
 
 # Ensure all strategies are imported so @register_strategy decorators run.
-import spectra_captioning.strategies.quotes_only 
-import spectra_captioning.strategies.spectra_image
+import spectra_captioning.strategies.quotes_only  # noqa: F401
+import spectra_captioning.strategies.spectra_image  # noqa: F401
 from spectra_captioning.strategies.base import get_strategy
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,13 @@ def run_crossmatch() -> None:
         help="Crossmatch radius in arcseconds (overrides config).",
     )
     parser.add_argument(
+        "--ids-file",
+        "--np-file",
+        type=Path,
+        default=None,
+        help="Optional path to a .npy file containing wiki_entity_id values to filter by.",
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=None,
@@ -92,6 +100,21 @@ def run_crossmatch() -> None:
 
     if df.empty:
         return
+
+    if args.ids_file:
+        if not args.ids_file.exists():
+            print(f"ERROR: Specified IDs file not found: {args.ids_file}", file=sys.stderr)
+            sys.exit(1)
+        target_ids_raw = np.load(args.ids_file, allow_pickle=True)
+        target_ids = set(str(x) for x in target_ids_raw.ravel())
+        available_ids = set(df["wiki_entity_id"].dropna().astype(str).unique())
+        present_ids = target_ids.intersection(available_ids)
+        missing_ids = target_ids - available_ids
+        print(f"\nTarget IDs filter ({args.ids_file.name}):")
+        print(f"  Total IDs in numpy array: {len(target_ids):,}")
+        print(f"  Present in {args.dataset.upper()} dataset: {len(present_ids):,}")
+        print(f"  Missing from {args.dataset.upper()} dataset: {len(missing_ids):,}")
+        df = df[df["wiki_entity_id"].astype(str).isin(present_ids)]
         
     group_col = "wiki_entity_id"
     groups = df.groupby(group_col)
@@ -132,6 +155,13 @@ def run_captioning() -> None:
         help="Max number of objects to caption (overrides config).",
     )
     parser.add_argument(
+        "--ids-file",
+        "--np-file",
+        type=Path,
+        default=None,
+        help="Optional path to a .npy file containing wiki_entity_id values to filter by.",
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=None,
@@ -159,6 +189,8 @@ def run_captioning() -> None:
         overrides["captioning.limit"] = args.limit
     if args.save_plots:
         overrides["captioning.save_plots"] = True
+    if args.ids_file is not None:
+        overrides["captioning.ids_file"] = str(args.ids_file)
     if overrides:
         config = apply_overrides(config, overrides)
 
@@ -166,6 +198,7 @@ def run_captioning() -> None:
     model_name = config["captioning"]["model"]
     strategy_name = config["captioning"]["strategy"]
     limit = config["captioning"]["limit"]
+    ids_file = config["captioning"].get("ids_file")
     output_dir = Path(config["captioning"]["output_dir"])
     thinking_level = config["captioning"].get("thinking_level", "low")
     thinking_summaries = config["captioning"].get("thinking_summaries", "auto")
@@ -184,9 +217,39 @@ def run_captioning() -> None:
     logger.info("Loading crossmatch data...")
     df = _run_crossmatch(config, dataset=args.dataset)
 
-    # Step 2: Group by object.
+    # Step 2: Filter by numpy IDs file if provided.
+    if ids_file:
+        ids_path = Path(ids_file)
+        if not ids_path.exists():
+            print(f"ERROR: Specified IDs file not found: {ids_path}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            target_ids_raw = np.load(ids_path, allow_pickle=True)
+            target_ids = set(str(x) for x in target_ids_raw.ravel())
+        except Exception as exc:
+            print(f"ERROR: Failed to load numpy IDs file {ids_path}: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        available_ids = set(df["wiki_entity_id"].dropna().astype(str).unique())
+        present_ids = target_ids.intersection(available_ids)
+        missing_ids = target_ids - available_ids
+
+        print(f"\nTarget IDs filter ({ids_path.name}):")
+        print(f"  Total IDs in numpy array: {len(target_ids):,}")
+        print(f"  Present in {args.dataset.upper()} dataset: {len(present_ids):,}")
+        print(f"  Missing from {args.dataset.upper()} dataset: {len(missing_ids):,}\n")
+        logger.info(
+            "Filtered by %s: %d present, %d missing.",
+            ids_path.name,
+            len(present_ids),
+            len(missing_ids),
+        )
+
+        df = df[df["wiki_entity_id"].astype(str).isin(present_ids)]
+
+    # Step 3: Group by object.
     if df.empty:
-        print("Crossmatch dataframe is empty.")
+        print("No matching objects found after filtering.")
         sys.exit(0)
         
     group_col = "wiki_entity_id"
@@ -201,7 +264,7 @@ def run_captioning() -> None:
         logger.info("Limiting to %d objects (of %d available).", limit, len(groups))
         groups = groups[:limit]
 
-    # Step 3: Initialize Gemini client and strategy.
+    # Step 4: Initialize Gemini client and strategy.
     logger.info("Using model: %s, strategy: %s", model_name, strategy_name)
 
     gemini = GeminiClient(
