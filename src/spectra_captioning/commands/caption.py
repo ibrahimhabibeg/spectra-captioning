@@ -1,0 +1,240 @@
+"""CLI command: generate captions using Gemini."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+from dotenv import load_dotenv
+
+from spectra_captioning.config import apply_overrides, load_config
+from spectra_captioning.data.crossmatch import run_crossmatch as _run_crossmatch
+from spectra_captioning.models.gemini import GeminiClient
+from spectra_captioning.output import (
+    append_to_jsonl,
+    build_output_record,
+    generate_output_filename,
+)
+from spectra_captioning.strategies.base import CaptionResult
+from spectra_captioning.utils import setup_logging
+
+# Ensure all strategies are imported so @register_strategy decorators run.
+import spectra_captioning.strategies.quotes_only  # noqa: F401
+import spectra_captioning.strategies.spectra_image  # noqa: F401
+from spectra_captioning.strategies.base import get_strategy
+
+logger = logging.getLogger(__name__)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the CLI argument parser for the caption command."""
+    parser = argparse.ArgumentParser(
+        description="Generate spectra captions using Gemini."
+    )
+    parser.add_argument(
+        "--dataset",
+        choices=["sdss", "desi"],
+        default="sdss",
+        help="Spectra catalog (default: sdss).",
+    )
+    parser.add_argument(
+        "--strategy",
+        default=None,
+        help="Captioning strategy name (overrides config).",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Gemini model name (overrides config).",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Max number of objects to caption (overrides config).",
+    )
+    parser.add_argument(
+        "--ids-file",
+        "--np-file",
+        type=Path,
+        default=None,
+        help="Optional path to a .npy file containing wiki_entity_id values to filter by.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Path to config YAML (default: config.yaml).",
+    )
+    parser.add_argument(
+        "--save-plots",
+        action="store_true",
+        help="Save rendered spectra plot PNG images to output/plots/.",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true")
+    return parser
+
+
+def parse_config(args_list: list[str] | None = None) -> tuple[dict, argparse.Namespace]:
+    """Parse CLI arguments, configure logging, and construct the merged config."""
+    parser = build_parser()
+    args = parser.parse_args(args_list)
+
+    setup_logging(args.verbose)
+    load_dotenv()
+
+    # Load and override config.
+    config = load_config(args.config)
+    overrides: dict = {}
+    if args.strategy:
+        overrides["captioning.strategy"] = args.strategy
+    if args.model:
+        overrides["captioning.model"] = args.model
+    if args.limit is not None:
+        overrides["captioning.limit"] = args.limit
+    if args.save_plots:
+        overrides["captioning.save_plots"] = True
+    if args.ids_file is not None:
+        overrides["captioning.ids_file"] = str(args.ids_file)
+    if overrides:
+        config = apply_overrides(config, overrides)
+
+    return config, args
+
+
+def run_captioning(args_list: list[str] | None = None) -> None:
+    """CLI entry point: generate captions from cached crossmatch."""
+    config, args = parse_config(args_list)
+
+    # Resolve settings.
+    model_name = config["captioning"]["model"]
+    strategy_name = config["captioning"]["strategy"]
+    limit = config["captioning"]["limit"]
+    ids_file = config["captioning"].get("ids_file")
+    output_dir = Path(config["captioning"]["output_dir"])
+    thinking_level = config["captioning"].get("thinking_level", "low")
+    thinking_summaries = config["captioning"].get("thinking_summaries", "auto")
+
+    # Check API key.
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print(
+            "ERROR: GEMINI_API_KEY not set. "
+            "Create a .env file with GEMINI_API_KEY=your-key.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Step 1: Load crossmatch data.
+    logger.debug("Loading crossmatch data...")
+    df = _run_crossmatch(config, dataset=args.dataset)
+
+    # Step 2: Filter by numpy IDs file if provided.
+    if ids_file:
+        ids_path = Path(ids_file)
+        if not ids_path.exists():
+            print(f"ERROR: Specified IDs file not found: {ids_path}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            target_ids_raw = np.load(ids_path, allow_pickle=True)
+            target_ids = set(str(x) for x in target_ids_raw.ravel())
+        except Exception as exc:
+            print(f"ERROR: Failed to load numpy IDs file {ids_path}: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        available_ids = set(df["wiki_entity_id"].dropna().astype(str).unique())
+        present_ids = target_ids.intersection(available_ids)
+        missing_ids = target_ids - available_ids
+
+        print(f"\nTarget IDs filter ({ids_path.name}):")
+        print(f"  Total IDs in numpy array: {len(target_ids):,}")
+        print(f"  Present in {args.dataset.upper()} dataset: {len(present_ids):,}")
+        print(f"  Missing from {args.dataset.upper()} dataset: {len(missing_ids):,}\n")
+
+        df = df[df["wiki_entity_id"].astype(str).isin(present_ids)]
+
+    # Step 3: Group by object.
+    if df.empty:
+        print("No matching objects found after filtering.")
+        sys.exit(0)
+
+    group_col = "wiki_entity_id"
+    groups = list(df.groupby(group_col))
+
+    if not groups:
+        print("No objects found after crossmatch grouping.")
+        sys.exit(0)
+
+    # Apply limit.
+    if limit and limit < len(groups):
+        logger.debug("Limiting to %d objects (of %d available).", limit, len(groups))
+        groups = groups[:limit]
+
+    # Step 4: Initialize Gemini client and strategy.
+    logger.debug("Using model: %s, strategy: %s", model_name, strategy_name)
+
+    gemini = GeminiClient(
+        api_key=api_key,
+        model=model_name,
+        thinking_level=thinking_level,
+        thinking_summaries=thinking_summaries,
+    )
+
+    StrategyCls = get_strategy(strategy_name)
+    strategy = StrategyCls(gemini_client=gemini)
+
+    # Step 5: Generate captions.
+    output_file = output_dir / generate_output_filename(
+        strategy_name, model_name, args.dataset
+    )
+    logger.debug("Output will be written to: %s", output_file)
+
+    total_tokens = 0
+    successful = 0
+    insufficient = 0
+
+    for i, (object_key, group_df) in enumerate(groups, 1):
+        object_key = str(object_key)
+        print(f"[{i}/{len(groups)}] Captioning {object_key} ({len(group_df)} crossmatch rows)...")
+
+        try:
+            result: CaptionResult = strategy.generate_caption(object_key, group_df, args.dataset, config)
+        except Exception as exc:
+            logger.error("Failed to caption %s: %s", object_key, exc)
+            continue
+
+        # Build and write the output record.
+        record = build_output_record(
+            object_key=object_key,
+            group_df=group_df,
+            result=result,
+            strategy_name=strategy.strategy_name,
+            model=model_name,
+            dataset=args.dataset,
+            config=config,
+        )
+        append_to_jsonl(record, output_file)
+
+        total_tokens += result.total_tokens
+        if result.caption.strip() == "INSUFFICIENT_SPECTRAL_DATA":
+            insufficient += 1
+            print(f"  -> INSUFFICIENT_SPECTRAL_DATA")
+        else:
+            successful += 1
+            # Show a preview of the caption.
+            preview = result.caption[:120] + ("..." if len(result.caption) > 120 else "")
+            print(f"  -> {preview}")
+
+    # Summary.
+    print(f"\n{'='*60}")
+    print(f"Captioning complete.")
+    print(f"  Objects processed: {successful + insufficient}")
+    print(f"  Successful captions: {successful}")
+    print(f"  Insufficient data: {insufficient}")
+    print(f"  Total tokens used: {total_tokens:,}")
+    print(f"  Output file: {output_file}")
+    print(f"{'='*60}")

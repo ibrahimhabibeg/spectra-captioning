@@ -106,7 +106,7 @@ class SpectraImageStrategy(CaptionStrategy):
             redshift=redshift,
         )
 
-        logger.info(
+        logger.debug(
             "Generating multimodal caption for object %s (dataset=%s, z=%s, image=%d bytes)...",
             object_key,
             dataset,
@@ -116,7 +116,7 @@ class SpectraImageStrategy(CaptionStrategy):
 
         response = self._client.generate(prompt, images=[image_bytes])
 
-        logger.info(
+        logger.debug(
             "Multimodal caption generated for %s: %d tokens used.",
             object_key,
             response.total_tokens,

@@ -74,7 +74,7 @@ class QuotesOnlyStrategy(CaptionStrategy):
         # Render the prompt.
         prompt = self._template.render(quotes=cleaned_quotes)
 
-        logger.info(
+        logger.debug(
             "Generating caption for object %s (%d quotes, prompt ~%d chars)...",
             object_key,
             len(cleaned_quotes),
@@ -84,7 +84,7 @@ class QuotesOnlyStrategy(CaptionStrategy):
         # Call Gemini.
         response = self._client.generate(prompt)
 
-        logger.info(
+        logger.debug(
             "Caption generated for %s: %d tokens used.",
             object_key,
             response.total_tokens,
