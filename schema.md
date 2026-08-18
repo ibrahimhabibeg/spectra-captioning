@@ -17,13 +17,19 @@ The Parquet file contains a wide, denormalized table where each row represents a
 | Column Category | Origin | Description | Example Columns |
 | :--- | :--- | :--- | :--- |
 | **Mentions Metadata** | Galaxy Mentions | Unique metadata about the astronomical object or paper mention. | `wiki_entity_id`, `mention_id`, `arxiv_id`, `evidence_quotes` |
-| **Spectra Metadata** | Spectra Catalog | Unique metadata about the spectral observation. | `spectrum`, `redshift`, `vdisp` (depending on SDSS/DESI) |
+| **Spectra Metadata** | Spectra Catalog | Unique metadata about the spectral observation. | `spectrum`, `Z` (redshift) |
 | **Mention Coordinates** | Galaxy Mentions | Target coordinates from the paper mention. | `ra_mentions`, `dec_mentions` |
 | **Spectra Coordinates** | Spectra Catalog | Target coordinates from the spectral observation. | `ra_spectra`, `dec_spectra` |
 | **Crossmatch Distance** | LSDB Engine | The distance between the matching coordinates in arcseconds. | `_dist_arcsec` |
 
+## 2. Merged Crossmatch Dataset (Parquet)
 
-## 2. Captions Output (JSONL)
+When combining catalogs via `uv run merge`, all observations from SDSS and DESI are preserved into a single unified Parquet dataset with a compact 29-column schema:
+- **Common Columns (27)**: `wiki_entity_id`, `spectrum`, `Z`, `evidence_quotes`, `evidence_quote_count`, coordinates, literature IDs, and crossmatch metadata remain flat.
+- **`survey` Column**: Identifies the origin survey for the observation row (`"sdss"` or `"desi"`).
+- **`survey_metadata` Column**: Nested dictionary containing survey-specific photometry and flags (e.g. `SPECTROFLUX_*`, `VDISP`, `ZWARNING` for SDSS; `FLUX_*`, `FIBERFLUX_*`, `EBV`, `ZWARN` for DESI).
+
+## 3. Captions Output (JSONL)
 
 The caption generation pipeline outputs a single `.jsonl` (JSON Lines) file. Each line is a standalone JSON object representing the caption result for a single astronomical object (grouped by `wiki_entity_id`).
 

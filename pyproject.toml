@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 caption = "spectra_captioning.cli:run_captioning"
 crossmatch = "spectra_captioning.cli:run_crossmatch"
+merge = "spectra_captioning.cli:run_merge"
 
 [build-system]
 requires = ["hatchling"]

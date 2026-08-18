@@ -52,6 +52,16 @@ def run_crossmatch(config: dict, dataset: str = "sdss") -> pd.DataFrame:
         logger.debug("Loading cached crossmatch from %s", cache)
         return pd.read_parquet(cache)
 
+    if dataset == "merged":
+        from spectra_captioning.commands.merge import merge_datasets
+        df_sdss = run_crossmatch(config, dataset="sdss")
+        df_desi = run_crossmatch(config, dataset="desi")
+        merged_df = merge_datasets(df_sdss, df_desi)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        merged_df.to_parquet(cache)
+        logger.debug("Cached merged crossmatch to %s", cache)
+        return merged_df
+
     logger.debug("No cache found. Running crossmatch (this downloads data from HuggingFace)...")
 
     # Import lsdb only when needed — it pulls in dask and is slow to import.

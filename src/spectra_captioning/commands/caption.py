@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--dataset",
-        choices=["sdss", "desi"],
+        choices=["sdss", "desi", "merged"],
         default="sdss",
         help="Spectra catalog (default: sdss).",
     )
