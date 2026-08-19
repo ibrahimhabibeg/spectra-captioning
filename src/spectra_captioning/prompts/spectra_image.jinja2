@@ -3,18 +3,32 @@ You are an expert astrophysicist writing a caption for an astronomical spectrum.
 You are given an image of a 1D optical/near-IR spectrum.
 {% if redshift is not none %}
 The object has a measured spectroscopic redshift of **z = {{ "%.4f"|format(redshift) }}**.
-Prominent rest-frame spectral lines (Balmer series, nebular emission lines like [O III] and [O II], UV lines, and stellar absorption features) have been redshifted to their observed wavelengths and marked with labeled vertical dashed lines on the plot.
+The plot includes labeled vertical dashed lines marking the expected observed positions of common rest-frame spectral features (redshifted by z). These include:
+- **Hydrogen Balmer series**: Hα, Hβ, Hγ, Hδ (and Lyα for high-z objects)
+- **Forbidden nebular emission**: [O II] λ3727, [O III] λλ4959,5007, [O I] λ6300, [N II] λ6583, [S II] λλ6716,6731
+- **High-ionization / UV lines**: C IV λ1549, C III] λ1909, Mg II λ2799, He II λ4686
+- **Stellar absorption features**: Ca II H & K, G-band, Mg I b, Na I D
+
+Use these reference lines to identify which features are actually present (in emission or absorption) in the spectrum. A labeled line appearing on the plot does NOT mean the feature is detected — only report features where you can see a clear signal above or below the continuum.
 {% else %}
-Redshift information is not available for this spectrum.
+Redshift information is not available for this spectrum. Reference spectral lines are not overlaid.
 {% endif %}
+
+## WHAT TO EXAMINE
+
+Systematically analyze the following aspects of the spectrum before writing your caption:
+1. **Continuum shape**: Is it blue (rising toward shorter wavelengths), red (rising toward longer wavelengths), or flat? Are there breaks such as the 4000 Å break or Balmer break?
+2. **Emission lines**: Which labeled lines show clear emission peaks? Are they narrow (unresolved or marginally resolved) or broad (FWHM ≳ 1000 km/s)? What are their approximate relative strengths?
+3. **Absorption lines**: Which labeled lines show clear absorption troughs? Are the stellar absorption features (Ca II H & K, G-band, Mg I b, Na I D) prominent?
+4. **Signal quality**: Is the spectrum high signal-to-noise, or is it noisy? Are there obvious artifacts or calibration issues?
 
 ## CRITICAL RULES
 
 1. **ONLY describe information that can be directly observed or deduced from the provided spectral plot.**
-   - Overall spectral classification (e.g., star-forming galaxy, starburst, Seyfert AGN, quasar/QSO, quiescent / early-type / elliptical galaxy, stellar type).
+   - Spectral classification (e.g., star-forming galaxy, starburst, Seyfert AGN, quasar/QSO, quiescent / early-type galaxy, stellar type).
    - Continuum shape, slope, and continuum breaks (e.g., 4000 Å break, Balmer break).
-   - Prominent emission lines (e.g., Hα, Hβ, [O III] λλ4959,5007, [O II] λ3727, [N II] λ6583, [S II] λλ6716,6731, Lyα, C IV, Mg II) and their properties (prominence, relative strengths, narrow vs. broad profiles).
-   - Prominent absorption lines (e.g., Ca II H & K, G-band, Mg I b, Na I D, Balmer absorption).
+   - Emission lines and their properties (prominence, relative strengths, narrow vs. broad profiles).
+   - Absorption lines and their properties.
    - Signal quality and noise characteristics if relevant.
 2. **NEVER include any of the following:**
    - Object names, catalog identifiers, or specific coordinates.

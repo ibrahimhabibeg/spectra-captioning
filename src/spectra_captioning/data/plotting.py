@@ -34,13 +34,13 @@ REST_FRAME_LINES: list[dict[str, Any]] = [
     {"name": r"$\mathrm{C\,IV}$", "rest_wave": 1549.06, "type": "uv", "color": "#ff7f0e"},
     {"name": r"$\mathrm{C\,III]}$", "rest_wave": 1908.73, "type": "uv", "color": "#ff7f0e"},
     {"name": r"$\mathrm{Mg\,II}$", "rest_wave": 2798.75, "type": "uv", "color": "#e377c2"},
-    {"name": r"$\mathrm{He\,II}$", "rest_wave": 4685.70, "type": "uv", "color": "#2ca02c"},
+    {"name": r"$\mathrm{He\,II}$", "rest_wave": 4685.70, "type": "emission", "color": "#2ca02c"},
     # Stellar absorption features
     {"name": r"$\mathrm{Ca\,II\,K}$", "rest_wave": 3933.66, "type": "absorption", "color": "#7f7f7f"},
     {"name": r"$\mathrm{Ca\,II\,H}$", "rest_wave": 3968.47, "type": "absorption", "color": "#7f7f7f"},
     {"name": r"$\mathrm{G\text{-}band}$", "rest_wave": 4304.40, "type": "absorption", "color": "#7f7f7f"},
     {"name": r"$\mathrm{Mg\,I\,b}$", "rest_wave": 5175.40, "type": "absorption", "color": "#7f7f7f"},
-    {"name": r"$\mathrm{Na\,I\,D}$", "rest_wave": 5892.00, "type": "absorption", "color": "#7f7f7f"},
+    {"name": r"$\mathrm{Na\,I\,D}$", "rest_wave": 5892.94, "type": "absorption", "color": "#7f7f7f"},
 ]
 
 

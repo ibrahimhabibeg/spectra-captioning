@@ -42,7 +42,7 @@ class SpectraImageStrategy(CaptionStrategy):
 
     @property
     def strategy_name(self) -> str:
-        return "spectra_image_v1"
+        return "spectra_image_v2"
 
     def generate_caption(
         self, object_key: str, group_df: pd.DataFrame, dataset: str, config: dict
