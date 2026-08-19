@@ -23,6 +23,7 @@ from spectra_captioning.strategies.base import CaptionResult
 from spectra_captioning.utils import setup_logging
 
 # Ensure all strategies are imported so @register_strategy decorators run.
+import spectra_captioning.strategies.combined  # noqa: F401
 import spectra_captioning.strategies.quotes_only  # noqa: F401
 import spectra_captioning.strategies.spectra_image  # noqa: F401
 from spectra_captioning.strategies.base import get_strategy
