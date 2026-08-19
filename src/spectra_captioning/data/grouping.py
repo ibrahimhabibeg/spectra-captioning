@@ -83,3 +83,39 @@ def extract_quotes(group_df: pd.DataFrame) -> list[str]:
                 all_quotes.append(q_stripped)
                 
     return all_quotes
+
+
+def get_closest_observation(df: pd.DataFrame, object_id: str) -> pd.Series | None:
+    """Retrieve a single representative observation row for a given object ID.
+
+    Filters the DataFrame for rows matching ``wiki_entity_id == object_id``.
+    In the case of multiple observations (e.g. from multiple surveys or mentions),
+    it checks which observation is closest (smallest ``_dist_arcsec``) and returns its row.
+
+    Args:
+        df: The merged crossmatch DataFrame (or group subset).
+        object_id: The wiki_entity_id of the target object.
+
+    Returns:
+        A pandas Series for the single closest observation row, or None if not found.
+    """
+    object_id = str(object_id)
+    if "wiki_entity_id" in df.columns:
+        matches = df[df["wiki_entity_id"].astype(str) == object_id]
+    else:
+        matches = df
+
+    if matches.empty:
+        return None
+
+    if len(matches) == 1:
+        return matches.iloc[0]
+
+    # Multiple observations: choose the closest by crossmatch distance (_dist_arcsec)
+    if "_dist_arcsec" in matches.columns:
+        sorted_matches = matches.sort_values(
+            by="_dist_arcsec", ascending=True, na_position="last"
+        )
+        return sorted_matches.iloc[0]
+
+    return matches.iloc[0]

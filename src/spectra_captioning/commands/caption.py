@@ -36,12 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate spectra captions using Gemini."
     )
     parser.add_argument(
-        "--dataset",
-        choices=["sdss", "desi", "merged"],
-        default="sdss",
-        help="Spectra catalog (default: sdss).",
-    )
-    parser.add_argument(
         "--strategy",
         default=None,
         help="Captioning strategy name (overrides config).",
@@ -129,9 +123,9 @@ def run_captioning(args_list: list[str] | None = None) -> None:
         )
         sys.exit(1)
 
-    # Step 1: Load crossmatch data.
+    # Step 1: Load merged crossmatch data.
     logger.debug("Loading crossmatch data...")
-    df = _run_crossmatch(config, dataset=args.dataset)
+    df = _run_crossmatch(config, dataset="merged")
 
     # Step 2: Filter by numpy IDs file if provided.
     if ids_file:
@@ -152,8 +146,8 @@ def run_captioning(args_list: list[str] | None = None) -> None:
 
         print(f"\nTarget IDs filter ({ids_path.name}):")
         print(f"  Total IDs in numpy array: {len(target_ids):,}")
-        print(f"  Present in {args.dataset.upper()} dataset: {len(present_ids):,}")
-        print(f"  Missing from {args.dataset.upper()} dataset: {len(missing_ids):,}\n")
+        print(f"  Present in merged dataset: {len(present_ids):,}")
+        print(f"  Missing from merged dataset: {len(missing_ids):,}\n")
 
         df = df[df["wiki_entity_id"].astype(str).isin(present_ids)]
 
@@ -189,7 +183,7 @@ def run_captioning(args_list: list[str] | None = None) -> None:
 
     # Step 5: Generate captions.
     output_file = output_dir / generate_output_filename(
-        strategy_name, model_name, args.dataset
+        strategy_name, model_name, "merged"
     )
     logger.debug("Output will be written to: %s", output_file)
 
@@ -202,7 +196,7 @@ def run_captioning(args_list: list[str] | None = None) -> None:
         print(f"[{i}/{len(groups)}] Captioning {object_key} ({len(group_df)} crossmatch rows)...")
 
         try:
-            result: CaptionResult = strategy.generate_caption(object_key, group_df, args.dataset, config)
+            result: CaptionResult = strategy.generate_caption(object_key, group_df, "merged", config)
         except Exception as exc:
             logger.error("Failed to caption %s: %s", object_key, exc)
             continue
@@ -214,7 +208,7 @@ def run_captioning(args_list: list[str] | None = None) -> None:
             result=result,
             strategy_name=strategy.strategy_name,
             model=model_name,
-            dataset=args.dataset,
+            dataset="merged",
             config=config,
         )
         append_to_jsonl(record, output_file)

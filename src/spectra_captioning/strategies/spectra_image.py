@@ -13,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
+from spectra_captioning.data.grouping import get_closest_observation
 from spectra_captioning.data.plotting import plot_spectrum
 from spectra_captioning.models.gemini import GeminiClient
 from spectra_captioning.strategies.base import (
@@ -49,35 +50,38 @@ class SpectraImageStrategy(CaptionStrategy):
         """Generate a caption from the object's plotted spectrum and redshift.
 
         Steps:
-        1. Extract the spectral array dictionary and redshift from the group DataFrame.
-        2. Plot the spectrum with redshifted line overlays into PNG image bytes.
-        3. Render the multimodal Jinja2 prompt template.
-        4. Send the prompt and plot image to Gemini.
-        5. Return a CaptionResult.
+        1. Select the closest observation row for this object ID.
+        2. Extract the spectral array dictionary and redshift from that row.
+        3. Plot the spectrum with redshifted line overlays into PNG image bytes.
+        4. Render the multimodal Jinja2 prompt template.
+        5. Send the prompt and plot image to Gemini.
+        6. Return a CaptionResult.
         """
-        spectrum_dict = None
-        redshift: float | None = None
+        obs_row = get_closest_observation(group_df, object_key)
+        if obs_row is None:
+            logger.warning("Object %s has no matching observation row.", object_key)
+            return CaptionResult(
+                caption="INSUFFICIENT_SPECTRAL_DATA",
+                prompt_used="(no observation available)",
+            )
 
-        for _, row in group_df.iterrows():
-            s = row.get("spectrum")
-            if isinstance(s, dict) and "lambda" in s and "flux" in s:
-                spectrum_dict = s
-                z_val = row.get("Z")
-                if z_val is not None and not pd.isna(z_val):
-                    try:
-                        redshift = float(z_val)
-                    except (ValueError, TypeError):
-                        redshift = None
-                break
-
-        if spectrum_dict is None:
+        spectrum_dict = obs_row.get("spectrum")
+        if not (isinstance(spectrum_dict, dict) and "lambda" in spectrum_dict and "flux" in spectrum_dict):
             logger.warning(
-                "Object %s has no valid spectrum dictionary in dataframe.", object_key
+                "Object %s has no valid spectrum dictionary in closest observation row.", object_key
             )
             return CaptionResult(
                 caption="INSUFFICIENT_SPECTRAL_DATA",
                 prompt_used="(no spectrum available)",
             )
+
+        redshift: float | None = None
+        z_val = obs_row.get("Z")
+        if z_val is not None and not pd.isna(z_val):
+            try:
+                redshift = float(z_val)
+            except (ValueError, TypeError):
+                redshift = None
 
         try:
             image_bytes = plot_spectrum(

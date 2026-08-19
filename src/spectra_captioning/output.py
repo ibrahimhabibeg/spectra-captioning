@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
 
+from spectra_captioning.data.grouping import extract_quotes, get_closest_observation
 from spectra_captioning.strategies.base import CaptionResult
-from spectra_captioning.data.grouping import extract_quotes
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +30,24 @@ def build_output_record(
     provenance, coordinates, the caption itself, thought summaries,
     and token usage.
     """
-    ra_val = group_df.iloc[0].get("ra_mentions")
-    if ra_val is None or pd.isna(ra_val): ra_val = group_df.iloc[0].get("ra", 0.0)
-    dec_val = group_df.iloc[0].get("dec_mentions")
-    if dec_val is None or pd.isna(dec_val): dec_val = group_df.iloc[0].get("dec", 0.0)
+    obs_row = get_closest_observation(group_df, object_key)
+    
+    if obs_row is not None:
+        ra_val = obs_row.get("ra_mentions")
+        if ra_val is None or pd.isna(ra_val): ra_val = obs_row.get("ra", 0.0)
+        dec_val = obs_row.get("dec_mentions")
+        if dec_val is None or pd.isna(dec_val): dec_val = obs_row.get("dec", 0.0)
+        source = obs_row.get("survey", dataset)
+    else:
+        ra_val = group_df.iloc[0].get("ra_mentions", group_df.iloc[0].get("ra", 0.0))
+        dec_val = group_df.iloc[0].get("dec_mentions", group_df.iloc[0].get("dec", 0.0))
+        source = dataset
     
     all_quotes = extract_quotes(group_df)
     
     return {
         "object_key": object_key,
-        "dataset_source": dataset,
+        "dataset_source": source,
         "ra": float(ra_val),
         "dec": float(dec_val),
         "strategy": strategy_name,
