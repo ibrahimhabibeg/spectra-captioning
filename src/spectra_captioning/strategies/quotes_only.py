@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
-from spectra_captioning.data.grouping import extract_quotes
+from spectra_captioning.data.grouping import extract_quotes, get_closest_observation
 from spectra_captioning.data.preprocessing import clean_quotes
 from spectra_captioning.models.gemini import GeminiClient
 from spectra_captioning.strategies.base import (
@@ -45,7 +45,7 @@ class QuotesOnlyStrategy(CaptionStrategy):
 
     @property
     def strategy_name(self) -> str:
-        return "quotes_only_v1"
+        return "quotes_only_v3"
 
     def generate_caption(
         self, object_key: str, group_df: pd.DataFrame, dataset: str, config: dict
@@ -71,8 +71,14 @@ class QuotesOnlyStrategy(CaptionStrategy):
                 prompt_used="(no quotes available)",
             )
 
-        # Render the prompt.
-        prompt = self._template.render(quotes=cleaned_quotes)
+        redshift, min_wave, max_wave = self._extract_spectral_metadata(group_df, object_key)
+
+        prompt = self._template.render(
+            quotes=cleaned_quotes,
+            redshift=redshift,
+            min_wave=min_wave,
+            max_wave=max_wave,
+        )
 
         logger.debug(
             "Generating caption for object %s (%d quotes, prompt ~%d chars)...",
@@ -91,3 +97,29 @@ class QuotesOnlyStrategy(CaptionStrategy):
         )
 
         return CaptionResult.from_gemini_response(response, prompt_used=prompt)
+
+    def _extract_spectral_metadata(
+        self, group_df: pd.DataFrame, object_key: str
+    ) -> tuple[float | None, float | None, float | None]:
+        """Extract redshift and wavelength bounds from the closest observation."""
+        redshift: float | None = None
+        min_wave: float | None = None
+        max_wave: float | None = None
+
+        obs_row = get_closest_observation(group_df, object_key)
+        if obs_row is not None:
+            z_val = obs_row.get("Z")
+            if z_val is not None and not pd.isna(z_val):
+                try:
+                    redshift = float(z_val)
+                except (ValueError, TypeError):
+                    pass
+            
+            spectrum_dict = obs_row.get("spectrum")
+            if isinstance(spectrum_dict, dict) and "lambda" in spectrum_dict:
+                lambdas = spectrum_dict["lambda"]
+                if len(lambdas) > 0:
+                    min_wave = min(lambdas)
+                    max_wave = max(lambdas)
+
+        return redshift, min_wave, max_wave
