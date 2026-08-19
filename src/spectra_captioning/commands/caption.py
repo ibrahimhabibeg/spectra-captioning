@@ -100,93 +100,54 @@ def parse_config(args_list: list[str] | None = None) -> tuple[dict, argparse.Nam
     return config, args
 
 
-def run_captioning(args_list: list[str] | None = None) -> None:
-    """CLI entry point: generate captions from cached crossmatch."""
-    config, args = parse_config(args_list)
+def filter_ids(df: pd.DataFrame, ids_file: Path | str | None) -> pd.DataFrame:
+    """Filter the crossmatch dataframe to include only specified IDs.
+    
+    If ids_file is not provided, returns the dataframe unmodified.
+    """
+    if not ids_file:
+        return df
 
-    # Resolve settings.
-    model_name = config["captioning"]["model"]
-    strategy_name = config["captioning"]["strategy"]
-    limit = config["captioning"]["limit"]
-    ids_file = config["captioning"].get("ids_file")
-    output_dir = Path(config["captioning"]["output_dir"])
-    thinking_level = config["captioning"].get("thinking_level", "low")
-    thinking_summaries = config["captioning"].get("thinking_summaries", "auto")
-
-    # Check API key.
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print(
-            "ERROR: GEMINI_API_KEY not set. "
-            "Create a .env file with GEMINI_API_KEY=your-key.",
-            file=sys.stderr,
-        )
+    ids_path = Path(ids_file)
+    if not ids_path.exists():
+        print(f"ERROR: Specified IDs file not found: {ids_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 1: Load merged crossmatch data.
-    logger.debug("Loading crossmatch data...")
-    df = _run_crossmatch(config, dataset="merged")
+    try:
+        target_ids_raw = np.load(ids_path, allow_pickle=True)
+        target_ids = set(str(x) for x in target_ids_raw.ravel())
+    except Exception as exc:
+        print(f"ERROR: Failed to load numpy IDs file {ids_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
-    # Step 2: Filter by numpy IDs file if provided.
-    if ids_file:
-        ids_path = Path(ids_file)
-        if not ids_path.exists():
-            print(f"ERROR: Specified IDs file not found: {ids_path}", file=sys.stderr)
-            sys.exit(1)
-        try:
-            target_ids_raw = np.load(ids_path, allow_pickle=True)
-            target_ids = set(str(x) for x in target_ids_raw.ravel())
-        except Exception as exc:
-            print(f"ERROR: Failed to load numpy IDs file {ids_path}: {exc}", file=sys.stderr)
-            sys.exit(1)
+    available_ids = set(df["wiki_entity_id"].dropna().astype(str).unique())
+    present_ids = target_ids.intersection(available_ids)
+    missing_ids = target_ids - available_ids
 
-        available_ids = set(df["wiki_entity_id"].dropna().astype(str).unique())
-        present_ids = target_ids.intersection(available_ids)
-        missing_ids = target_ids - available_ids
+    print(f"\nTarget IDs filter ({ids_path.name}):")
+    print(f"  Total IDs in numpy array: {len(target_ids):,}")
+    print(f"  Present in merged dataset: {len(present_ids):,}")
+    print(f"  Missing from merged dataset: {len(missing_ids):,}\n")
 
-        print(f"\nTarget IDs filter ({ids_path.name}):")
-        print(f"  Total IDs in numpy array: {len(target_ids):,}")
-        print(f"  Present in merged dataset: {len(present_ids):,}")
-        print(f"  Missing from merged dataset: {len(missing_ids):,}\n")
+    return df[df["wiki_entity_id"].astype(str).isin(present_ids)]
 
-        df = df[df["wiki_entity_id"].astype(str).isin(present_ids)]
 
-    # Step 3: Group by object.
-    if df.empty:
-        print("No matching objects found after filtering.")
-        sys.exit(0)
-
-    group_col = "wiki_entity_id"
-    groups = list(df.groupby(group_col))
-
-    if not groups:
-        print("No objects found after crossmatch grouping.")
-        sys.exit(0)
-
-    # Apply limit.
+def apply_limit(groups: list[tuple], limit: int | None) -> list[tuple]:
+    """Slice the grouped dataframe list if a limit is specified."""
     if limit and limit < len(groups):
         logger.debug("Limiting to %d objects (of %d available).", limit, len(groups))
-        groups = groups[:limit]
+        return groups[:limit]
+    return groups
 
-    # Step 4: Initialize Gemini client and strategy.
-    logger.debug("Using model: %s, strategy: %s", model_name, strategy_name)
 
-    gemini = GeminiClient(
-        api_key=api_key,
-        model=model_name,
-        thinking_level=thinking_level,
-        thinking_summaries=thinking_summaries,
-    )
-
-    StrategyCls = get_strategy(strategy_name)
-    strategy = StrategyCls(gemini_client=gemini)
-
-    # Step 5: Generate captions.
-    output_file = output_dir / generate_output_filename(
-        strategy_name, model_name, "merged"
-    )
-    logger.debug("Output will be written to: %s", output_file)
-
+def generate_captions(
+    groups: list[tuple],
+    strategy,
+    model_name: str,
+    config: dict,
+    output_file: Path
+) -> None:
+    """Loop over groups, generate captions, and write records to disk."""
     total_tokens = 0
     successful = 0
     insufficient = 0
@@ -232,3 +193,69 @@ def run_captioning(args_list: list[str] | None = None) -> None:
     print(f"  Total tokens used: {total_tokens:,}")
     print(f"  Output file: {output_file}")
     print(f"{'='*60}")
+
+
+def run_captioning(args_list: list[str] | None = None) -> None:
+    """CLI entry point: generate captions from cached crossmatch."""
+    config, args = parse_config(args_list)
+
+    # Resolve settings.
+    model_name = config["captioning"]["model"]
+    strategy_name = config["captioning"]["strategy"]
+    limit = config["captioning"]["limit"]
+    ids_file = config["captioning"].get("ids_file")
+    output_dir = Path(config["captioning"]["output_dir"])
+    thinking_level = config["captioning"].get("thinking_level", "low")
+    thinking_summaries = config["captioning"].get("thinking_summaries", "auto")
+
+    # Check API key.
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print(
+            "ERROR: GEMINI_API_KEY not set. "
+            "Create a .env file with GEMINI_API_KEY=your-key.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Step 1: Load merged crossmatch data.
+    logger.debug("Loading crossmatch data...")
+    df = _run_crossmatch(config, dataset="merged")
+
+    # Step 2: Filter by numpy IDs file if provided.
+    df = filter_ids(df, ids_file)
+
+    if df.empty:
+        print("No matching objects found after filtering.")
+        sys.exit(0)
+
+    # Step 3: Group by object.
+    groups = list(df.groupby("wiki_entity_id"))
+
+    if not groups:
+        print("No objects found after crossmatch grouping.")
+        sys.exit(0)
+
+    # Apply limit.
+    groups = apply_limit(groups, limit)
+
+    # Step 4: Initialize Gemini client and strategy.
+    logger.debug("Using model: %s, strategy: %s", model_name, strategy_name)
+
+    gemini = GeminiClient(
+        api_key=api_key,
+        model=model_name,
+        thinking_level=thinking_level,
+        thinking_summaries=thinking_summaries,
+    )
+
+    StrategyCls = get_strategy(strategy_name)
+    strategy = StrategyCls(gemini_client=gemini)
+
+    # Step 5: Generate captions.
+    output_file = output_dir / generate_output_filename(
+        strategy_name, model_name
+    )
+    logger.debug("Output will be written to: %s", output_file)
+
+    generate_captions(groups, strategy, model_name, config, output_file)

@@ -93,13 +93,13 @@ def append_to_jsonl(record: dict, output_path: Path) -> None:
 
 
 def generate_output_filename(
-    strategy: str, model: str, dataset: str
+    strategy: str, model: str
 ) -> str:
     """Generate a descriptive output filename.
 
-    Format: ``captions_{strategy}_{model}_{dataset}_{timestamp}.jsonl``
+    Format: ``captions_{strategy}_{model}_{timestamp}.jsonl``
     """
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     # Sanitize model name for filesystem.
     safe_model = model.replace("/", "_").replace(".", "_")
-    return f"captions_{strategy}_{safe_model}_{dataset}_{ts}.jsonl"
+    return f"captions_{strategy}_{safe_model}_{ts}.jsonl"
