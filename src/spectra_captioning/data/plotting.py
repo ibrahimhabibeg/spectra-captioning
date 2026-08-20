@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import io
 import logging
+import threading
 from typing import Any
 
 import matplotlib
 matplotlib.use("Agg")  # Non-interactive backend
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,7 @@ REST_FRAME_LINES: list[dict[str, Any]] = [
     {"name": r"$\mathrm{Na\,I\,D}$", "rest_wave": 5892.94, "type": "absorption", "color": "#7f7f7f"},
 ]
 
+_PLOT_LOCK = threading.Lock()
 
 def plot_spectrum(
     spectrum_dict: dict,
@@ -102,72 +105,75 @@ def plot_spectrum(
     # Leave extra headroom at the top for vertical line labels
     ymax = p_high + 0.35 * flux_range
 
-    fig, ax = plt.subplots(figsize=(10, 4.5), dpi=dpi)
+    with _PLOT_LOCK:
+        fig = Figure(figsize=(10, 4.5), dpi=dpi)
+        canvas = FigureCanvas(fig)
+        ax = fig.add_subplot(111)
 
-    # Plot spectral flux curve
-    ax.plot(
-        wave_valid,
-        flux_valid,
-        color="#203a43",
-        linewidth=0.85,
-        alpha=0.95,
-        label="Flux",
-    )
+        # Plot spectral flux curve
+        ax.plot(
+            wave_valid,
+            flux_valid,
+            color="#203a43",
+            linewidth=0.85,
+            alpha=0.95,
+            label="Flux",
+        )
 
-    w_min = float(wave_valid.min())
-    w_max = float(wave_valid.max())
+        w_min = float(wave_valid.min())
+        w_max = float(wave_valid.max())
 
-    # Add redshifted rest-frame spectral lines if redshift is available
-    if redshift is not None and not np.isnan(redshift) and redshift > -0.01:
-        z_factor = 1.0 + redshift
-        label_y_top = ymax - 0.04 * (ymax - ymin)
+        # Add redshifted rest-frame spectral lines if redshift is available
+        if redshift is not None and not np.isnan(redshift) and redshift > -0.01:
+            z_factor = 1.0 + redshift
+            label_y_top = ymax - 0.04 * (ymax - ymin)
 
-        for line in REST_FRAME_LINES:
-            obs_wave = line["rest_wave"] * z_factor
-            if w_min <= obs_wave <= w_max:
-                color = line.get("color", "#7f7f7f")
-                ax.axvline(
-                    obs_wave,
-                    color=color,
-                    linestyle="--",
-                    linewidth=0.8,
-                    alpha=0.6,
-                )
-                ax.text(
-                    obs_wave,
-                    label_y_top,
-                    line["name"],
-                    rotation=90,
-                    verticalalignment="top",
-                    horizontalalignment="center",
-                    fontsize=7.5,
-                    color=color,
-                    alpha=0.9,
-                    clip_on=True,
-                )
+            for line in REST_FRAME_LINES:
+                obs_wave = line["rest_wave"] * z_factor
+                if w_min <= obs_wave <= w_max:
+                    color = line.get("color", "#7f7f7f")
+                    ax.axvline(
+                        obs_wave,
+                        color=color,
+                        linestyle="--",
+                        linewidth=0.8,
+                        alpha=0.6,
+                    )
+                    ax.text(
+                        obs_wave,
+                        label_y_top,
+                        line["name"],
+                        rotation=90,
+                        verticalalignment="top",
+                        horizontalalignment="center",
+                        fontsize=7.5,
+                        color=color,
+                        alpha=0.9,
+                        clip_on=True,
+                    )
 
-    # Formatting axes & labels
-    ax.set_xlim(w_min, w_max)
-    ax.set_ylim(ymin, ymax)
-    ax.set_xlabel(r"Observed Wavelength ($\mathrm{\AA}$)", fontsize=10)
-    ax.set_ylabel(
-        r"Flux ($10^{-17}\ \mathrm{erg\ s^{-1}\ cm^{-2}\ \AA^{-1}}$)",
-        fontsize=10,
-    )
+        # Formatting axes & labels
+        ax.set_xlim(w_min, w_max)
+        ax.set_ylim(ymin, ymax)
+        ax.set_xlabel(r"Observed Wavelength ($\mathrm{\AA}$)", fontsize=10)
+        ax.set_ylabel(
+            r"Flux ($10^{-17}\ \mathrm{erg\ s^{-1}\ cm^{-2}\ \AA^{-1}}$)",
+            fontsize=10,
+        )
 
-    z_str = f"z = {redshift:.4f}" if redshift is not None and not np.isnan(redshift) else "z = N/A"
-    ax.set_title(
-        f"1D Optical/Near-IR Spectrum ({z_str})",
-        fontsize=11,
-        fontweight="bold",
-        pad=10,
-    )
-    ax.grid(True, linestyle=":", alpha=0.35, color="#888888")
+        z_str = f"z = {redshift:.4f}" if redshift is not None and not np.isnan(redshift) else "z = N/A"
+        ax.set_title(
+            f"1D Optical/Near-IR Spectrum ({z_str})",
+            fontsize=11,
+            fontweight="bold",
+            pad=10,
+        )
+        ax.grid(True, linestyle=":", alpha=0.35, color="#888888")
 
-    plt.tight_layout()
+        fig.tight_layout()
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+        
     buf.seek(0)
     return buf.getvalue()

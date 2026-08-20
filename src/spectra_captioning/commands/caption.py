@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+import concurrent.futures
 import numpy as np
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -54,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max number of objects to caption (overrides config).",
     )
     parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Max number of concurrent workers (overrides config).",
+    )
+    parser.add_argument(
         "--ids-file",
         "--np-file",
         type=Path,
@@ -92,6 +99,8 @@ def parse_config(args_list: list[str] | None = None) -> tuple[dict, argparse.Nam
         overrides["captioning.model"] = args.model
     if args.limit is not None:
         overrides["captioning.limit"] = args.limit
+    if args.max_workers is not None:
+        overrides["captioning.max_workers"] = args.max_workers
     if args.save_plots:
         overrides["captioning.save_plots"] = True
     if args.ids_file is not None:
@@ -142,30 +151,20 @@ def apply_limit(groups: list[tuple], limit: int | None) -> list[tuple]:
     return groups
 
 
-def generate_captions(
-    groups: list[tuple],
+def _process_object(
+    object_key: str,
+    group_df: pd.DataFrame,
     strategy,
     model_name: str,
-    config: dict,
-    output_file: Path
-) -> None:
-    """Loop over groups, generate captions, and write records to disk."""
-    total_tokens = 0
-    successful = 0
-    insufficient = 0
-
-    pbar = tqdm(groups, desc="Captioning objects", unit="obj")
-    for object_key, group_df in pbar:
-        object_key = str(object_key)
-        pbar.set_description(f"Captioning {object_key}")
-
-        try:
-            result: CaptionResult = strategy.generate_caption(object_key, group_df, "merged", config)
-        except Exception as exc:
-            logger.error("Failed to caption %s: %s", object_key, exc)
-            continue
-
-        # Build and write the output record.
+    config: dict
+) -> tuple[str, CaptionResult | None, dict | None, str | None]:
+    """Worker function to process a single object.
+    
+    Returns:
+        Tuple of (object_key, result, output_record, error_message).
+    """
+    try:
+        result = strategy.generate_caption(object_key, group_df, "merged", config)
         record = build_output_record(
             object_key=object_key,
             group_df=group_df,
@@ -175,17 +174,62 @@ def generate_captions(
             dataset="merged",
             config=config,
         )
-        append_to_jsonl(record, output_file)
+        return object_key, result, record, None
+    except Exception as exc:
+        return object_key, None, None, str(exc)
 
-        total_tokens += result.total_tokens
-        if result.caption.strip() == "INSUFFICIENT_SPECTRAL_DATA":
-            insufficient += 1
-            pbar.set_postfix({"status": "INSUFFICIENT_DATA"})
-        else:
-            successful += 1
-            # Show a preview of the caption.
-            preview = result.caption[:50].replace("\n", " ") + ("..." if len(result.caption) > 50 else "")
-            pbar.set_postfix({"preview": preview})
+
+def generate_captions(
+    groups: list[tuple],
+    strategy,
+    model_name: str,
+    config: dict,
+    output_file: Path
+) -> None:
+    """Loop over groups, generate captions concurrently, and write records to disk."""
+    total_tokens = 0
+    successful = 0
+    insufficient = 0
+    max_workers = config.get("captioning", {}).get("max_workers", 10)
+
+    logger.debug("Starting ThreadPoolExecutor with max_workers=%d", max_workers)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_key = {
+            executor.submit(
+                _process_object, str(object_key), group_df, strategy, model_name, config
+            ): str(object_key)
+            for object_key, group_df in groups
+        }
+
+        pbar = tqdm(concurrent.futures.as_completed(future_to_key), total=len(groups), desc="Captioning objects", unit="obj")
+        for future in pbar:
+            object_key = future_to_key[future]
+            pbar.set_description(f"Completed {object_key}")
+
+            try:
+                _, result, record, error = future.result()
+            except Exception as exc:
+                logger.error("Future for %s raised an exception: %s", object_key, exc)
+                continue
+
+            if error:
+                logger.error("Failed to caption %s: %s", object_key, error)
+                continue
+
+            if result and record:
+                # Thread-safe write from the main thread
+                append_to_jsonl(record, output_file)
+
+                total_tokens += result.total_tokens
+                if result.caption.strip() == "INSUFFICIENT_SPECTRAL_DATA":
+                    insufficient += 1
+                    pbar.set_postfix({"status": "INSUFFICIENT_DATA"})
+                else:
+                    successful += 1
+                    preview = result.caption[:50].replace("\n", " ") + ("..." if len(result.caption) > 50 else "")
+                    pbar.set_postfix({"preview": preview})
 
     # Summary.
     print(f"\n{'='*60}")
