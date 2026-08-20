@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 from spectra_captioning.config import apply_overrides, load_config
 from spectra_captioning.data.crossmatch import run_crossmatch as _run_crossmatch
@@ -153,9 +154,10 @@ def generate_captions(
     successful = 0
     insufficient = 0
 
-    for i, (object_key, group_df) in enumerate(groups, 1):
+    pbar = tqdm(groups, desc="Captioning objects", unit="obj")
+    for object_key, group_df in pbar:
         object_key = str(object_key)
-        print(f"[{i}/{len(groups)}] Captioning {object_key} ({len(group_df)} crossmatch rows)...")
+        pbar.set_description(f"Captioning {object_key}")
 
         try:
             result: CaptionResult = strategy.generate_caption(object_key, group_df, "merged", config)
@@ -178,12 +180,12 @@ def generate_captions(
         total_tokens += result.total_tokens
         if result.caption.strip() == "INSUFFICIENT_SPECTRAL_DATA":
             insufficient += 1
-            print(f"  -> INSUFFICIENT_SPECTRAL_DATA")
+            pbar.set_postfix({"status": "INSUFFICIENT_DATA"})
         else:
             successful += 1
             # Show a preview of the caption.
-            preview = result.caption[:120] + ("..." if len(result.caption) > 120 else "")
-            print(f"  -> {preview}")
+            preview = result.caption[:50].replace("\n", " ") + ("..." if len(result.caption) > 50 else "")
+            pbar.set_postfix({"preview": preview})
 
     # Summary.
     print(f"\n{'='*60}")
