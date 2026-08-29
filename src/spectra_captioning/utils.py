@@ -20,3 +20,18 @@ def setup_logging(verbose: bool = False) -> None:
     if not verbose:
         for noisy in ["httpx", "httpcore", "fsspec", "google_genai", "urllib3"]:
             logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def get_qualitative_distance(z: float) -> str:
+    """Return a qualitative description of distance based on redshift."""
+    if z < 0.1:
+        return "very close (local universe)"
+    elif z < 0.5:
+        return "close"
+    elif z < 1.0:
+        return "intermediate"
+    elif z < 2.0:
+        return "far"
+    else:
+        return "very far (high redshift)"
+

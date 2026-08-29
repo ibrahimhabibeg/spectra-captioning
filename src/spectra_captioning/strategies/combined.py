@@ -22,6 +22,7 @@ from spectra_captioning.strategies.base import (
     CaptionStrategy,
     register_strategy,
 )
+from spectra_captioning.utils import get_qualitative_distance
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class CombinedStrategy(CaptionStrategy):
 
     @property
     def strategy_name(self) -> str:
-        return "combined_v1"
+        return "combined_v2"
 
     def generate_caption(
         self, object_key: str, group_df: pd.DataFrame, dataset: str, config: dict
@@ -113,9 +114,14 @@ class CombinedStrategy(CaptionStrategy):
             plot_path.write_bytes(image_bytes)
             logger.debug("Saved spectrum plot to %s", plot_path)
 
+        redshift_description = None
+        if redshift is not None:
+            redshift_description = get_qualitative_distance(redshift)
+
         # 4. Render Prompt
         prompt = self._template.render(
             redshift=redshift,
+            redshift_description=redshift_description,
             quotes=cleaned_quotes,
         )
 
