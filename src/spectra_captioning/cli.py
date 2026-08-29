@@ -10,5 +10,6 @@ from __future__ import annotations
 from spectra_captioning.commands.caption import run_captioning
 from spectra_captioning.commands.crossmatch import run_crossmatch
 from spectra_captioning.commands.merge import run_merge
+from spectra_captioning.commands.extract import run_extract
 
-__all__ = ["run_crossmatch", "run_captioning", "run_merge"]
+__all__ = ["run_crossmatch", "run_captioning", "run_merge", "run_extract"]
