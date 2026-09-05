@@ -57,7 +57,47 @@ def merge_datasets(df_sdss: pd.DataFrame, df_desi: pd.DataFrame) -> pd.DataFrame
 
     # Concatenate all rows
     merged_df = pd.concat([df_sdss_clean, df_desi_clean], ignore_index=True)
+
+    # Keep only the closest observation per object
+    if "wiki_entity_id" in merged_df.columns and "_dist_arcsec" in merged_df.columns:
+        merged_df = merged_df.sort_values("_dist_arcsec", ascending=True)
+        merged_df = merged_df.drop_duplicates(subset=["wiki_entity_id"], keep="first")
+
+    merged_df = merged_df.sort_values("wiki_entity_id").reset_index(drop=True)
     return merged_df
+
+
+def generate_split_series(merged_df: pd.DataFrame) -> pd.Series:
+    split_series = pd.Series("train", index=merged_df.index)
+
+    sdss_eligible_mask = [
+        (s == "sdss" and m.get("ZWARNING", -1) == 0)
+        for s, m in zip(merged_df["survey"], merged_df["survey_metadata"])
+    ]
+    desi_eligible_mask = [
+        (s == "desi" and m.get("ZWARN", -1) == 0)
+        for s, m in zip(merged_df["survey"], merged_df["survey_metadata"])
+    ]
+    sdss_eligible = merged_df[sdss_eligible_mask]
+    if len(sdss_eligible) >= 300:
+        sdss_test_idx = sdss_eligible.sample(n=300, random_state=42).index
+        split_series.loc[sdss_test_idx] = "test"
+    else:
+        logger.warning(
+            "Not enough eligible SDSS rows for test set (found %d, need 300).",
+            len(sdss_eligible),
+        )
+
+    desi_eligible = merged_df[desi_eligible_mask]
+    if len(desi_eligible) >= 100:
+        desi_test_idx = desi_eligible.sample(n=100, random_state=42).index
+        split_series.loc[desi_test_idx] = "test"
+    else:
+        logger.warning(
+            "Not enough eligible DESI rows for test set (found %d, need 100).",
+            len(desi_eligible),
+        )
+    return split_series
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Path to config YAML (default: config.yaml).",
+    )
+    parser.add_argument(
+        "--no-split",
+        action="store_true",
+        help="Disable automatic generation of the train/test split.",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
@@ -138,6 +183,9 @@ def run_merge(args_list: list[str] | None = None) -> None:
 
     merged_df = merge_datasets(df_sdss, df_desi)
 
+    if not args.no_split:
+        merged_df["split"] = generate_split_series(merged_df)
+
     # Determine output path
     output_path = (
         args.output
@@ -153,14 +201,24 @@ def run_merge(args_list: list[str] | None = None) -> None:
     both_ids = sdss_ids.intersection(desi_ids)
     all_ids = sdss_ids.union(desi_ids)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Catalog Merge Complete")
-    print(f"{'='*60}")
-    print(f"  SDSS observations:        {len(df_sdss):,} rows ({len(sdss_ids):,} objects)")
-    print(f"  DESI observations:        {len(df_desi):,} rows ({len(desi_ids):,} objects)")
+    print(f"{'=' * 60}")
+    print(
+        f"  SDSS observations:        {len(df_sdss):,} rows ({len(sdss_ids):,} objects)"
+    )
+    print(
+        f"  DESI observations:        {len(df_desi):,} rows ({len(desi_ids):,} objects)"
+    )
     print(f"  Overlapping objects:      {len(both_ids):,} objects in both surveys")
     print(f"  Total merged rows:        {len(merged_df):,} rows")
     print(f"  Total unique objects:     {len(all_ids):,} objects")
-    print(f"  Output columns:           {len(merged_df.columns)} columns (survey-specific fields nested)")
+    if "split" in merged_df.columns:
+        train_count = (merged_df["split"] == "train").sum()
+        test_count = (merged_df["split"] == "test").sum()
+        print(f"  Split:                    {train_count:,} train, {test_count:,} test")
+    print(
+        f"  Output columns:           {len(merged_df.columns)} columns (survey-specific fields nested)"
+    )
     print(f"  Saved to:                 {output_path}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
