@@ -42,7 +42,7 @@ def parse_config(args_list: list[str] | None = None) -> tuple[dict, argparse.Nam
     return config, args
 
 
-def run(args_list: list[str] | None = None) -> None:
+def run_extract(args_list: list[str] | None = None) -> None:
     """CLI entry point: run the fastspec extraction."""
     config, args = parse_config(args_list)
 
@@ -50,4 +50,4 @@ def run(args_list: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    run()
+    run_extract()

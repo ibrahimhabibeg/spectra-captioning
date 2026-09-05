@@ -66,7 +66,7 @@ def download_tractor_catalog(tractor_path_str: str) -> None:
     download_file(url, dest)
 
 
-def load_and_filter_dataset(parquet_path: Path, limit: int | None = None, retry_failed: Path | None = None) -> list[tuple[int, set[int]]]:
+def load_and_filter_dataset(parquet_path: Path, limit: int | None = None, retry_failed: Path | None = None) -> tuple[list[tuple[int, set[int]]], dict[int, str]]:
     """Load dataset, compute HEALPIX_64, filter, and group by HEALPix."""
     if not parquet_path.exists():
         raise FileNotFoundError(f"Dataset not found at {parquet_path}")
@@ -88,10 +88,11 @@ def load_and_filter_dataset(parquet_path: Path, limit: int | None = None, retry_
         desi_df = desi_df.head(limit)
         
     grouped = desi_df.groupby('healpix_64')['object_id'].apply(lambda x: set(int(tid) for tid in x)).reset_index()
-    return list(grouped.itertuples(index=False, name=None))
+    target_to_wiki = dict(zip(desi_df['object_id'].astype(int), desi_df['wiki_entity_id'].astype(str)))
+    return list(grouped.itertuples(index=False, name=None)), target_to_wiki
 
 
-def extract_and_save_results(output_fits: Path, output_csv: Path, raw_csv: Path) -> None:
+def extract_and_save_results(output_fits: Path, output_csv: Path, raw_csv: Path, target_to_wiki: dict[int, str]) -> None:
     """Parse FastSpecFit FITS output, compute SNR, and safely save to CSVs."""
     if not output_fits.exists():
         return
@@ -104,7 +105,8 @@ def extract_and_save_results(output_fits: Path, output_csv: Path, raw_csv: Path)
         
     batch_results, batch_raw = [], []
     for _, row in out_df.iterrows():
-        tid = row['TARGETID']
+        tid = int(row['TARGETID'])
+        wiki_id = target_to_wiki.get(tid)
         
         flux_cols = [col for col in out_df.columns if col.endswith('_FLUX') and 'BOX' not in col]
         for flux_col in flux_cols:
@@ -115,13 +117,14 @@ def extract_and_save_results(output_fits: Path, output_csv: Path, raw_csv: Path)
                     snr = flux * np.sqrt(ivar)
                     if snr >= 3.0:
                         batch_results.append({
+                            'wiki_entity_id': wiki_id,
                             'TARGETID': tid,
                             'LINE_NAME': flux_col.replace('_FLUX', ''),
                             'FLUX': flux,
                             'SNR': snr
                         })
                         
-        raw_dict = {}
+        raw_dict = {'wiki_entity_id': wiki_id}
         for col in out_df.columns:
             val = row[col]
             raw_dict[col] = val.decode('utf-8') if isinstance(val, bytes) else val
@@ -187,7 +190,7 @@ def log_error(error_log_path: Path, healpix: int, prog: str, error_type: str, me
         f.write(f"{healpix},{prog},{error_type},{msg}\n")
 
 
-def process_healpix_region(healpix: int, all_targetids: set[int], run_dir: Path, pbar: tqdm) -> None:
+def process_healpix_region(healpix: int, all_targetids: set[int], run_dir: Path, pbar: tqdm, target_to_wiki: dict[int, str]) -> None:
     """Process all targets within a specific HEALPix region."""
     group = healpix // 100
     pending_targets = set(all_targetids)
@@ -234,7 +237,7 @@ def process_healpix_region(healpix: int, all_targetids: set[int], run_dir: Path,
                 
                 if success:
                     pbar.set_postfix_str(f"Extracting lines ({prog})")
-                    extract_and_save_results(output_fits, output_csv, raw_csv)
+                    extract_and_save_results(output_fits, output_csv, raw_csv, target_to_wiki)
                     
                 pending_targets -= matched_targets
                 
@@ -255,7 +258,7 @@ def run_extraction(config: dict, limit: int | None = None, retry_failed: Path | 
     setup_global_dependencies()
     
     parquet_path = PROJECT_ROOT / "data" / "crossmatch_cache" / "crossmatch_merged_1.0arcsec.parquet"
-    healpix_groups = load_and_filter_dataset(parquet_path, limit, retry_failed)
+    healpix_groups, target_to_wiki = load_and_filter_dataset(parquet_path, limit, retry_failed)
     
     logger.info(f"Processing {sum(len(t) for _, t in healpix_groups)} targets across {len(healpix_groups)} HEALPix regions...")
     
@@ -269,7 +272,7 @@ def run_extraction(config: dict, limit: int | None = None, retry_failed: Path | 
         
     pbar = tqdm(healpix_groups, desc="Extracting Targets")
     for healpix, all_targetids in pbar:
-        process_healpix_region(healpix, all_targetids, run_dir, pbar)
+        process_healpix_region(healpix, all_targetids, run_dir, pbar, target_to_wiki)
         
     pbar.set_postfix_str("Done")
 
