@@ -5,6 +5,9 @@ description = "Generate spectra-aligned captions from astronomical paper mention
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+  "astro-datalab>=2.24.0",
+  "astropy>=8.0.1",
+  "astroquery>=0.4.11",
   "fastspecfit>=3.6.1",
   "fitsio>=1.4.2",
   "google-genai",
@@ -16,6 +19,7 @@ dependencies = [
   "matplotlib>=3.9.0",
   "pandas>=2.3.3",
   "pillow>=10.0.0",
+  "pycurl>=7.47.0",
   "python-dotenv",
   "pyyaml",
   "requests>=2.34.2",
@@ -27,6 +31,7 @@ caption = "spectra_captioning.cli:run_captioning"
 crossmatch = "spectra_captioning.cli:run_crossmatch"
 merge = "spectra_captioning.cli:run_merge"
 extract = "spectra_captioning.cli:run_extract"
+extract-type = "spectra_captioning.cli:run_extract_type"
 
 [build-system]
 requires = ["hatchling"]
