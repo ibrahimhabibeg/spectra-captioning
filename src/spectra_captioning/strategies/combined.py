@@ -46,6 +46,21 @@ class CombinedStrategy(CaptionStrategy):
     def strategy_name(self) -> str:
         return "combined_v2"
 
+    def _get_template_context(
+        self,
+        object_key: str,
+        group_df: pd.DataFrame,
+        redshift: float | None,
+        redshift_description: str | None,
+        cleaned_quotes: list[str],
+    ) -> dict:
+        """Construct the template variables for rendering the prompt."""
+        return {
+            "redshift": redshift,
+            "redshift_description": redshift_description,
+            "quotes": cleaned_quotes,
+        }
+
     def generate_caption(
         self, object_key: str, group_df: pd.DataFrame, dataset: str, config: dict
     ) -> CaptionResult:
@@ -119,11 +134,10 @@ class CombinedStrategy(CaptionStrategy):
             redshift_description = get_qualitative_distance(redshift)
 
         # 4. Render Prompt
-        prompt = self._template.render(
-            redshift=redshift,
-            redshift_description=redshift_description,
-            quotes=cleaned_quotes,
+        context = self._get_template_context(
+            object_key, group_df, redshift, redshift_description, cleaned_quotes
         )
+        prompt = self._template.render(**context)
 
         logger.debug(
             "Generating combined caption for object %s (z=%s, %d quotes, image=%d bytes)...",
