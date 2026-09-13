@@ -1,0 +1,19 @@
+# Source Class Evaluation Benchmark Configuration
+task: "source_class"
+# Sampled equally per class and per survey (e.g. 300 total with 3 classes and 2 surveys = 50 per class per survey).
+total_samples: 300
+
+classes:
+  - "STAR"
+  - "GALAXY"
+  - "QUASAR"
+
+surveys:
+  - "sdss"
+  - "desi"
+# Oversampling factor when querying survey catalogs to account for blacklist drops
+oversample_factor: 2.0
+seed: 42
+training_data: "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
+output: "data/benchmarks/source_class.parquet"
+

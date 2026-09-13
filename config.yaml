@@ -8,7 +8,7 @@ crossmatch:
 
 # Captioning settings
 captioning:
-  model: "gemini-3.5-flash-lite"
+  model: "gemini-3.8-flash"
   strategy: "quotes_only_v1"
   limit: 10
   thinking_level: "high"

@@ -137,9 +137,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to config YAML (default: config.yaml).",
     )
     parser.add_argument(
-        "--no-split",
+        "--split",
         action="store_true",
-        help="Disable automatic generation of the train/test split.",
+        help="Generate legacy train/test split (default: False; all rows kept as training pool).",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
@@ -183,7 +183,7 @@ def run_merge(args_list: list[str] | None = None) -> None:
 
     merged_df = merge_datasets(df_sdss, df_desi)
 
-    if not args.no_split:
+    if args.split:
         merged_df["split"] = generate_split_series(merged_df)
 
     # Determine output path
