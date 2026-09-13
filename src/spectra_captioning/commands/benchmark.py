@@ -15,6 +15,10 @@ from spectra_captioning.benchmarks.subclass import (
     SubclassBenchmark,
     SubclassConfig,
 )
+from spectra_captioning.benchmarks.redshift import (
+    RedshiftBenchmark,
+    RedshiftConfig,
+)
 from spectra_captioning.utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -135,6 +139,71 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub_parser.add_argument("-v", "--verbose", action="store_true")
 
+    # Subparser for redshift
+    z_parser = subparsers.add_parser(
+        "redshift",
+        help="Generate distance / redshift (z) evaluation benchmark across SDSS and DESI.",
+    )
+    z_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("configs/benchmarks/redshift.yaml"),
+        help="Path to task config YAML (default: configs/benchmarks/redshift.yaml).",
+    )
+    z_parser.add_argument(
+        "-n",
+        "--total-samples",
+        type=int,
+        default=None,
+        help="Total sample size across all selected redshift bins and surveys.",
+    )
+    z_parser.add_argument(
+        "--surveys",
+        nargs="+",
+        default=None,
+        help="List of surveys to sample from (e.g. sdss desi).",
+    )
+    z_parser.add_argument(
+        "--uniform-spread",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Whether to subdivide buckets into K sub-bins to enforce uniform spread.",
+    )
+    z_parser.add_argument(
+        "-k",
+        "--k-subbins",
+        type=int,
+        default=None,
+        help="Number of sub-bins per primary bucket when uniform-spread is enabled.",
+    )
+    z_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for deterministic sampling.",
+    )
+    z_parser.add_argument(
+        "--training-data",
+        type=Path,
+        default=None,
+        help="Path to training parquet dataset for leakage filtering.",
+    )
+    z_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Output benchmark file destination (.parquet or .jsonl).",
+    )
+    z_parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Raise an error and fail if any cell yields fewer samples than requested.",
+    )
+    z_parser.add_argument("-v", "--verbose", action="store_true")
+
     return parser
 
 
@@ -221,6 +290,49 @@ def run_benchmark(args_list: list[str] | None = None) -> None:
             print(f"  Generated samples: {sub_benchmark.target_total} (100% complete)")
         print(f"  Subclasses:        {', '.join(sub_benchmark.classes)}")
         print(f"  Survey:            SDSS")
+        print(f"  Saved to:          {out_path}")
+        print(f"{'=' * 60}\n")
+    elif args.benchmark_task == "redshift":
+        if args.config and args.config.exists():
+            z_config = RedshiftConfig.from_yaml(args.config)
+        else:
+            z_config = RedshiftConfig()
+
+        if args.total_samples is not None:
+            z_config.total_samples = args.total_samples
+        if args.surveys is not None:
+            z_config.surveys = args.surveys
+        if args.uniform_spread is not None:
+            z_config.uniform_spread = args.uniform_spread
+        if args.k_subbins is not None:
+            z_config.k_subbins = args.k_subbins
+        if args.seed is not None:
+            z_config.seed = args.seed
+        if args.strict:
+            z_config.strict = True
+        if args.training_data is not None:
+            z_config.training_data = str(args.training_data)
+        if args.output is not None:
+            z_config.output = str(args.output)
+
+        z_benchmark = RedshiftBenchmark(z_config)
+        out_path = z_benchmark.save()
+
+        print(f"\n{'=' * 60}")
+        print(f"Redshift Benchmark Generation Complete")
+        print(f"{'=' * 60}")
+        print(f"  Target samples:    {z_benchmark.target_total}")
+        if z_benchmark.shortfalls:
+            deficit_count = sum(want - got for (got, want) in z_benchmark.shortfalls.values())
+            print(f"  Generated samples: {z_benchmark.target_total - deficit_count} (WARNING: {deficit_count} samples missing!)")
+            print(f"  Shortfalls by cell:")
+            for (srv, b_name), (got, want) in z_benchmark.shortfalls.items():
+                print(f"    - {srv.upper()} {b_name}: {got}/{want} ({want - got} missing)")
+        else:
+            print(f"  Generated samples: {z_benchmark.target_total} (100% complete)")
+        print(f"  Bins:              {', '.join(b.name for b in z_benchmark.bins)}")
+        print(f"  Surveys:           {', '.join(z_benchmark.surveys)}")
+        print(f"  Uniform spread:    {z_config.uniform_spread} (K={z_config.k_subbins})")
         print(f"  Saved to:          {out_path}")
         print(f"{'=' * 60}\n")
     else:

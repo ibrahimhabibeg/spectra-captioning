@@ -1,0 +1,32 @@
+# Distance / Redshift (z) Evaluation Benchmark Configuration
+task: "redshift"
+# Sampled equally per redshift bin and per survey (e.g. 300 total with 3 bins and 2 surveys = 50 per cell).
+total_samples: 300
+
+surveys:
+  - "sdss"
+  - "desi"
+
+# Primary physical evaluation buckets
+bins:
+  - name: "<0.1"
+    min_z: 0.0
+    max_z: 0.1
+  - name: "0.1-0.5"
+    min_z: 0.1
+    max_z: 0.5
+  - name: ">0.5"
+    min_z: 0.5
+    max_z: 5.0
+
+# Sub-bucket uniform stratification:
+# Slices each primary bucket into K equal sub-intervals to ensure an even, flat spread across the continuum.
+uniform_spread: true
+k_subbins: 3
+
+seed: 42
+oversample_factor: 2.0
+strict: false
+training_data: "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
+output: "data/benchmarks/redshift.parquet"
+

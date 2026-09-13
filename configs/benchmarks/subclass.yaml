@@ -1,7 +1,7 @@
 # Subclass Evaluation Benchmark Configuration (SDSS Only)
 task: "subclass"
-# Sampled equally per subclass (e.g. 300 total with 4 subclasses = 75 per subclass).
-total_samples: 300
+# Sampled equally per subclass (e.g. 200 total with 4 subclasses = 50 per subclass).
+total_samples: 200
 
 classes:
   - "AGN"
