@@ -1,0 +1,18 @@
+# Subclass Evaluation Benchmark Configuration (SDSS Only)
+task: "subclass"
+# Sampled equally per subclass (e.g. 300 total with 4 subclasses = 75 per subclass).
+total_samples: 300
+
+classes:
+  - "AGN"
+  - "STARFORMING"
+  - "STARBURST"
+  - "BROADLINE"
+
+survey: "sdss"
+# Oversampling factor when querying survey catalogs to account for blacklist drops
+oversample_factor: 2.0
+seed: 42
+training_data: "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
+output: "data/benchmarks/subclass.parquet"
+

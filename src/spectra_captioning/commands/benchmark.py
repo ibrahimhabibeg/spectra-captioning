@@ -11,6 +11,10 @@ from spectra_captioning.benchmarks.source_class import (
     SourceClassBenchmark,
     SourceClassConfig,
 )
+from spectra_captioning.benchmarks.subclass import (
+    SubclassBenchmark,
+    SubclassConfig,
+)
 from spectra_captioning.utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -23,14 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(
         dest="benchmark_task",
-        help="Benchmark task to generate (e.g. source-class).",
+        help="Benchmark task to generate (e.g. source-class, subclass).",
         required=True,
     )
 
     # Subparser for source-class
     sc_parser = subparsers.add_parser(
         "source-class",
-        help="Generate source class evaluation benchmark (STAR, GALAXY, QUASAR).",
+        help="Generate source class evaluation benchmark (GALAXY, QUASAR).",
     )
     sc_parser.add_argument(
         "-c",
@@ -78,6 +82,58 @@ def build_parser() -> argparse.ArgumentParser:
         help="Raise an error and fail if any class/survey yields fewer samples than requested.",
     )
     sc_parser.add_argument("-v", "--verbose", action="store_true")
+
+    # Subparser for subclass
+    sub_parser = subparsers.add_parser(
+        "subclass",
+        help="Generate subclass evaluation benchmark (SDSS only, e.g. AGN, STARFORMING, STARBURST, BROADLINE).",
+    )
+    sub_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("configs/benchmarks/subclass.yaml"),
+        help="Path to task config YAML (default: configs/benchmarks/subclass.yaml).",
+    )
+    sub_parser.add_argument(
+        "-n",
+        "--total-samples",
+        type=int,
+        default=None,
+        help="Total sample size across all selected subclasses.",
+    )
+    sub_parser.add_argument(
+        "--classes",
+        nargs="+",
+        default=None,
+        help="List of subclasses to include (e.g. AGN STARFORMING STARBURST BROADLINE).",
+    )
+    sub_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for deterministic sampling.",
+    )
+    sub_parser.add_argument(
+        "--training-data",
+        type=Path,
+        default=None,
+        help="Path to training parquet dataset for leakage filtering.",
+    )
+    sub_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Output benchmark file destination (.parquet or .jsonl).",
+    )
+    sub_parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Raise an error and fail if any subclass yields fewer samples than requested.",
+    )
+    sub_parser.add_argument("-v", "--verbose", action="store_true")
 
     return parser
 
@@ -127,6 +183,44 @@ def run_benchmark(args_list: list[str] | None = None) -> None:
             print(f"  Generated samples: {benchmark.target_total} (100% complete)")
         print(f"  Classes:           {', '.join(benchmark.classes)}")
         print(f"  Surveys:           {', '.join(benchmark.surveys)}")
+        print(f"  Saved to:          {out_path}")
+        print(f"{'=' * 60}\n")
+    elif args.benchmark_task == "subclass":
+        if args.config and args.config.exists():
+            sub_config = SubclassConfig.from_yaml(args.config)
+        else:
+            sub_config = SubclassConfig()
+
+        if args.total_samples is not None:
+            sub_config.total_samples = args.total_samples
+        if args.classes is not None:
+            sub_config.classes = args.classes
+        if args.seed is not None:
+            sub_config.seed = args.seed
+        if args.strict:
+            sub_config.strict = True
+        if args.training_data is not None:
+            sub_config.training_data = str(args.training_data)
+        if args.output is not None:
+            sub_config.output = str(args.output)
+
+        sub_benchmark = SubclassBenchmark(sub_config)
+        out_path = sub_benchmark.save()
+
+        print(f"\n{'=' * 60}")
+        print(f"Subclass Benchmark Generation Complete (SDSS Only)")
+        print(f"{'=' * 60}")
+        print(f"  Target samples:    {sub_benchmark.target_total}")
+        if sub_benchmark.shortfalls:
+            deficit_count = sum(want - got for (got, want) in sub_benchmark.shortfalls.values())
+            print(f"  Generated samples: {sub_benchmark.target_total - deficit_count} (WARNING: {deficit_count} samples missing!)")
+            print(f"  Shortfalls by subclass:")
+            for subcls, (got, want) in sub_benchmark.shortfalls.items():
+                print(f"    - {subcls}: {got}/{want} ({want - got} missing)")
+        else:
+            print(f"  Generated samples: {sub_benchmark.target_total} (100% complete)")
+        print(f"  Subclasses:        {', '.join(sub_benchmark.classes)}")
+        print(f"  Survey:            SDSS")
         print(f"  Saved to:          {out_path}")
         print(f"{'=' * 60}\n")
     else:
