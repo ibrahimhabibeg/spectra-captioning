@@ -47,12 +47,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Total sample size across all selected classes and surveys.",
     )
     sc_parser.add_argument(
-        "--classes",
-        nargs="+",
-        default=None,
-        help="List of classes to include (e.g. STAR GALAXY QUASAR).",
-    )
-    sc_parser.add_argument(
         "--surveys",
         nargs="+",
         default=None,
@@ -105,8 +99,6 @@ def run_benchmark(args_list: list[str] | None = None) -> None:
         # Apply CLI overrides
         if args.total_samples is not None:
             config.total_samples = args.total_samples
-        if args.classes is not None:
-            config.classes = args.classes
         if args.surveys is not None:
             config.surveys = args.surveys
         if args.seed is not None:

@@ -11,6 +11,7 @@ from spectra_captioning.benchmarks.base import (
     save_benchmark_dataset,
 )
 from spectra_captioning.benchmarks.source_class import (
+    SOURCE_CLASSES,
     SourceClassBenchmark,
     SourceClassConfig,
 )
@@ -26,16 +27,16 @@ def test_clean_id():
 def test_source_class_config_defaults():
     config = SourceClassConfig()
     assert config.total_samples == 300
-    assert config.normalized_classes() == ["STAR", "GALAXY", "QUASAR"]
     assert config.normalized_surveys() == ["sdss", "desi"]
+
+    bench = SourceClassBenchmark(config)
+    assert bench.classes == ["GALAXY", "QUASAR"]
+    assert SOURCE_CLASSES == ("GALAXY", "QUASAR")
 
 
 def test_source_class_config_yaml_loading():
     yaml_content = """
-total_samples: 150
-classes:
-  - stars
-  - galaxies
+total_samples: 200
 surveys:
   - sdss
 seed: 99
@@ -47,34 +48,27 @@ oversample_factor: 2.5
 
     try:
         config = SourceClassConfig.from_yaml(temp_path)
-        assert config.total_samples == 150
-        assert config.normalized_classes() == ["STAR", "GALAXY"]
+        assert config.total_samples == 200
         assert config.normalized_surveys() == ["sdss"]
         assert config.seed == 99
         assert config.oversample_factor == 2.5
+
+        bench = SourceClassBenchmark(config)
+        assert bench.classes == ["GALAXY", "QUASAR"]
     finally:
         Path(temp_path).unlink()
 
 
 def test_allocation_math():
-    # 300 samples across 3 classes and 2 surveys: 300 / 6 = 50 per cell
+    # 300 samples across 2 classes (GALAXY, QUASAR) and 2 surveys (SDSS, DESI): 300 / 4 = 75 per cell
     config = SourceClassConfig(total_samples=300)
     bench = SourceClassBenchmark(config)
-    assert bench.samples_per_cell == 50
+    assert bench.samples_per_cell == 75
 
-    # 300 samples across 2 classes (dropping Quasar) and 2 surveys: 300 / 4 = 75 per cell
-    config_2cls = SourceClassConfig(
-        total_samples=300, classes=["STAR", "GALAXY"], surveys=["sdss", "desi"]
-    )
-    bench_2cls = SourceClassBenchmark(config_2cls)
-    assert bench_2cls.samples_per_cell == 75
-
-    # Single survey, 3 classes: 120 / 3 = 40 per cell
-    config_1survey = SourceClassConfig(
-        total_samples=120, classes=["STAR", "GALAXY", "QUASAR"], surveys=["sdss"]
-    )
+    # Single survey, 2 classes: 120 / 2 = 60 per cell
+    config_1survey = SourceClassConfig(total_samples=120, surveys=["sdss"])
     bench_1survey = SourceClassBenchmark(config_1survey)
-    assert bench_1survey.samples_per_cell == 40
+    assert bench_1survey.samples_per_cell == 60
 
 
 def test_blacklist_loading():
@@ -110,7 +104,7 @@ def test_dataset_serialization():
                     "ivar": np.array([0.5, 0.5]),
                     "mask": np.array([False, False]),
                 },
-                "ground_truth": {"source_class": "STAR"},
+                "ground_truth": {"source_class": "GALAXY"},
             }
         ]
 
@@ -119,16 +113,16 @@ def test_dataset_serialization():
 
         loaded_df = pd.read_parquet(out_parquet)
         assert len(loaded_df) == 1
-        assert loaded_df.iloc[0]["ground_truth"]["source_class"] == "STAR"
+        assert loaded_df.iloc[0]["ground_truth"]["source_class"] == "GALAXY"
         spec = loaded_df.iloc[0]["spectrum"]
         assert len(spec["lambda"]) == 2
 
 
 def test_deterministic_seeded_queries():
     # Verify that identical seeds generate identical candidate sequences
-    b1 = SourceClassBenchmark(SourceClassConfig(total_samples=6, seed=42))
-    b2 = SourceClassBenchmark(SourceClassConfig(total_samples=6, seed=42))
-    b3 = SourceClassBenchmark(SourceClassConfig(total_samples=6, seed=99))
+    b1 = SourceClassBenchmark(SourceClassConfig(total_samples=4, seed=42))
+    b2 = SourceClassBenchmark(SourceClassConfig(total_samples=4, seed=42))
+    b3 = SourceClassBenchmark(SourceClassConfig(total_samples=4, seed=99))
 
     df1 = b1._query_sdss_candidates("GALAXY", 3)
     df2 = b2._query_sdss_candidates("GALAXY", 3)
@@ -147,4 +141,3 @@ if __name__ == "__main__":
     test_dataset_serialization()
     test_deterministic_seeded_queries()
     print("All unit tests passed successfully!")
-

@@ -26,26 +26,16 @@ from spectra_captioning.benchmarks.base import (
 
 logger = logging.getLogger(__name__)
 
-# Canonical class labels
-CLASS_MAPPING = {
-    "STAR": "STAR",
-    "STARS": "STAR",
-    "GALAXY": "GALAXY",
-    "GALAXIES": "GALAXY",
-    "QUASAR": "QUASAR",
-    "QUASARS": "QUASAR",
-    "QSO": "QUASAR",
-}
+# Fixed canonical classes for the Source Class benchmark
+SOURCE_CLASSES = ("GALAXY", "QUASAR")
 
 # Survey-specific class query labels
 SDSS_CLASS_MAP = {
-    "STAR": "STAR",
     "GALAXY": "GALAXY",
     "QUASAR": "QSO",
 }
 
 DESI_CLASS_MAP = {
-    "STAR": "STAR",
     "GALAXY": "GALAXY",
     "QUASAR": "QSO",
 }
@@ -57,7 +47,6 @@ class SourceClassConfig:
 
     task: str = "source_class"
     total_samples: int = 300
-    classes: list[str] = field(default_factory=lambda: ["STAR", "GALAXY", "QUASAR"])
     surveys: list[str] = field(default_factory=lambda: ["sdss", "desi"])
     seed: int = 42
     sdss_catalog: str = "hf://datasets/UniverseTBD/mmu_sdss_sdss"
@@ -80,15 +69,6 @@ class SourceClassConfig:
         filtered = {k: v for k, v in data.items() if k in valid_fields}
         return cls(**filtered)
 
-    def normalized_classes(self) -> list[str]:
-        """Return list of canonical uppercase classes."""
-        out = []
-        for c in self.classes:
-            norm = CLASS_MAPPING.get(c.strip().upper())
-            if norm and norm not in out:
-                out.append(norm)
-        return out
-
     def normalized_surveys(self) -> list[str]:
         """Return list of lowercase supported surveys."""
         supported = {"sdss", "desi"}
@@ -108,21 +88,19 @@ def extract_spectrum_dict(spec_obj: Any) -> dict[str, np.ndarray]:
 
 
 class SourceClassBenchmark(BenchmarkTask):
-    """Benchmark dataset generator for Source Class prediction (STAR, GALAXY, QUASAR)."""
+    """Benchmark dataset generator for Source Class prediction (GALAXY, QUASAR)."""
 
     def __init__(self, config: SourceClassConfig):
         self.config = config
-        self.classes = config.normalized_classes()
+        self.classes = list(SOURCE_CLASSES)
         self.surveys = config.normalized_surveys()
 
-        if not self.classes:
-            raise ValueError("No valid classes specified in config.")
         if not self.surveys:
             raise ValueError(
                 "No valid surveys specified in config (supported: 'sdss', 'desi')."
             )
 
-        # Allocation per cell
+        # Allocation per cell (2 classes x len(surveys))
         num_cells = len(self.classes) * len(self.surveys)
         self.samples_per_cell = max(1, self.config.total_samples // num_cells)
         self.target_total = self.samples_per_cell * num_cells
@@ -141,22 +119,23 @@ class SourceClassBenchmark(BenchmarkTask):
     def _query_sdss_candidates(
         self, sdss_cls: str, limit: int
     ) -> pd.DataFrame:
-        """Query SDSS Legacy candidates deterministically using seeded hash ordering."""
-        from astroquery.sdss import SDSS
+        """Query SDSS Legacy candidates from NOIRLab DataLab deterministically using seeded hash ordering."""
+        from dl import queryClient as qc
 
         seed_str = str(self.config.seed)
         query = f"""
-            SELECT TOP {limit} specobjid, ra, dec, z, zwarning, class, subclass
-            FROM SpecObjAll
-            WHERE zwarning = 0 AND run2d = '26' AND class = '{sdss_cls}'
-            ORDER BY hashbytes('MD5', cast(specobjid as varchar) + '{seed_str}')
+            SELECT specobjid, ra, dec, z, zwarning, class, subclass
+            FROM sdss_dr17.specobj
+            WHERE zwarning = 0 AND run2d = '26' AND survey = 'sdss' AND class = '{sdss_cls}'
+            ORDER BY md5(specobjid::text || '{seed_str}')
+            LIMIT {limit}
         """
         try:
-            res = SDSS.query_sql(query)
-            if res is not None:
-                return res.to_pandas()
+            df = qc.query(sql=query, fmt="pandas")
+            if df is not None and not df.empty:
+                return df
         except Exception as exc:
-            logger.error("astroquery.sdss query failed: %s", exc)
+            logger.error("DataLab SDSS query failed: %s", exc)
 
         return pd.DataFrame()
 
@@ -291,6 +270,7 @@ class SourceClassBenchmark(BenchmarkTask):
             radius_arcsec=1.5,
             suffixes=("_cand", "_mmu"),
             suffix_method="overlapping_columns",
+            log_changes=False,
         )
 
         logger.info(

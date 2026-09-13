@@ -1,12 +1,7 @@
 # Source Class Evaluation Benchmark Configuration
 task: "source_class"
-# Sampled equally per class and per survey (e.g. 300 total with 3 classes and 2 surveys = 50 per class per survey).
-total_samples: 300
-
-classes:
-  - "STAR"
-  - "GALAXY"
-  - "QUASAR"
+# Sampled equally per class (GALAXY, QUASAR) and per survey (e.g. 200 total with 2 classes and 2 surveys = 50 per cell).
+total_samples: 200
 
 surveys:
   - "sdss"
@@ -16,4 +11,3 @@ oversample_factor: 2.0
 seed: 42
 training_data: "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
 output: "data/benchmarks/source_class.parquet"
-
