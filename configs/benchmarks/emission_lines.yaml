@@ -1,0 +1,50 @@
+# Emission Lines Extraction Evaluation Benchmark Configuration (DESI Only)
+task: "emission_lines"
+# Sampled equally per evaluation regime (e.g. 200 total across 4 regimes = 50 per regime).
+total_samples: 200
+survey: "desi"
+
+# The 4 Stratified Evaluation Regimes
+regimes:
+  - "pure_negative"
+  - "high_snr_positive"
+  - "partial_with_distractors"
+  - "low_snr_marginal"
+
+# Curated pool of 14 key diagnostic optical and UV lines
+line_pool:
+  - "HALPHA"
+  - "HBETA"
+  - "HGAMMA"
+  - "OIII_5007"
+  - "OIII_4959"
+  - "OII_3726"
+  - "OII_3729"
+  - "NII_6584"
+  - "NII_6548"
+  - "SII_6716"
+  - "SII_6731"
+  - "MGII_2796"
+  - "MGII_2803"
+  - "CIV_1549"
+
+# Precomputed DESI FastSpecFit Value-Added Catalog (VAC v3.2)
+# Default: SV3 backup catalog (6.7 MB, fast download).
+# Can also be pointed to local file or full catalogs:
+# - fastspec-fuji-sv3-bright.fits
+# - fastspec-fuji-sv3-dark.fits
+fastspec_catalog: "https://data.desi.lbl.gov/public/edr/vac/edr/fastspecfit/fuji/v3.2/catalogs/fastspec-fuji-sv3-backup.fits"
+cache_dir: "data/fastspec_cache"
+
+# SNR Threshold parameters
+snr_threshold: 3.0
+high_snr_min: 10.0
+low_snr_min: 3.0
+low_snr_max: 6.0
+negative_snr_max: 2.0
+
+seed: 42
+strict: false
+training_data: "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
+output: "data/benchmarks/emission_lines.parquet"
+

@@ -19,6 +19,10 @@ from spectra_captioning.benchmarks.redshift import (
     RedshiftBenchmark,
     RedshiftConfig,
 )
+from spectra_captioning.benchmarks.emission_lines import (
+    EmissionLinesBenchmark,
+    EmissionLinesConfig,
+)
 from spectra_captioning.utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -204,6 +208,64 @@ def build_parser() -> argparse.ArgumentParser:
     )
     z_parser.add_argument("-v", "--verbose", action="store_true")
 
+    # Subparser for emission-lines
+    el_parser = subparsers.add_parser(
+        "emission-lines",
+        help="Generate emission lines extraction evaluation benchmark (DESI only).",
+    )
+    el_parser.add_argument(
+        "-c",
+        "--config",
+        type=Path,
+        default=Path("configs/benchmarks/emission_lines.yaml"),
+        help="Path to task config YAML (default: configs/benchmarks/emission_lines.yaml).",
+    )
+    el_parser.add_argument(
+        "-n",
+        "--total-samples",
+        type=int,
+        default=None,
+        help="Total sample size across all evaluation regimes.",
+    )
+    el_parser.add_argument(
+        "--regimes",
+        nargs="+",
+        default=None,
+        help="List of evaluation regimes (e.g. pure_negative high_snr_positive partial_with_distractors low_snr_marginal).",
+    )
+    el_parser.add_argument(
+        "--fastspec-catalog",
+        type=str,
+        default=None,
+        help="Path or URL to FastSpecFit FITS catalog file.",
+    )
+    el_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for deterministic sampling.",
+    )
+    el_parser.add_argument(
+        "--training-data",
+        type=Path,
+        default=None,
+        help="Path to training parquet dataset for leakage filtering.",
+    )
+    el_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Output benchmark file destination (.parquet or .jsonl).",
+    )
+    el_parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Raise an error and fail if any regime yields fewer samples than requested.",
+    )
+    el_parser.add_argument("-v", "--verbose", action="store_true")
+
     return parser
 
 
@@ -333,6 +395,47 @@ def run_benchmark(args_list: list[str] | None = None) -> None:
         print(f"  Bins:              {', '.join(b.name for b in z_benchmark.bins)}")
         print(f"  Surveys:           {', '.join(z_benchmark.surveys)}")
         print(f"  Uniform spread:    {z_config.uniform_spread} (K={z_config.k_subbins})")
+        print(f"  Saved to:          {out_path}")
+        print(f"{'=' * 60}\n")
+    elif args.benchmark_task == "emission-lines":
+        if args.config and args.config.exists():
+            el_config = EmissionLinesConfig.from_yaml(args.config)
+        else:
+            el_config = EmissionLinesConfig()
+
+        if args.total_samples is not None:
+            el_config.total_samples = args.total_samples
+        if args.regimes is not None:
+            el_config.regimes = args.regimes
+        if args.fastspec_catalog is not None:
+            el_config.fastspec_catalog = args.fastspec_catalog
+        if args.seed is not None:
+            el_config.seed = args.seed
+        if args.strict:
+            el_config.strict = True
+        if args.training_data is not None:
+            el_config.training_data = str(args.training_data)
+        if args.output is not None:
+            el_config.output = str(args.output)
+
+        el_benchmark = EmissionLinesBenchmark(el_config)
+        out_path = el_benchmark.save()
+
+        print(f"\n{'=' * 60}")
+        print(f"Emission Lines Benchmark Generation Complete (DESI Only)")
+        print(f"{'=' * 60}")
+        print(f"  Target samples:    {el_benchmark.target_total}")
+        if el_benchmark.shortfalls:
+            deficit_count = sum(want - got for (got, want) in el_benchmark.shortfalls.values())
+            print(f"  Generated samples: {el_benchmark.target_total - deficit_count} (WARNING: {deficit_count} samples missing!)")
+            print(f"  Shortfalls by regime:")
+            for reg, (got, want) in el_benchmark.shortfalls.items():
+                print(f"    - {reg}: {got}/{want} ({want - got} missing)")
+        else:
+            print(f"  Generated samples: {el_benchmark.target_total} (100% complete)")
+        print(f"  Regimes:           {', '.join(el_benchmark.quotas.keys())}")
+        print(f"  Survey:            DESI")
+        print(f"  Catalog:           {el_config.fastspec_catalog}")
         print(f"  Saved to:          {out_path}")
         print(f"{'=' * 60}\n")
     else:

@@ -105,7 +105,12 @@ def save_benchmark_dataset(records: list[dict[str, Any]], output_path: Path | st
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not records:
+    if isinstance(records, pd.DataFrame):
+        if records.empty:
+            logger.warning("No records to save to %s", path)
+            return path
+        records = records.to_dict("records")
+    elif not records:
         logger.warning("No records to save to %s", path)
         return path
 

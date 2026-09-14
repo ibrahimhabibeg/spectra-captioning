@@ -55,13 +55,19 @@ class RedshiftConfig:
             RedshiftBinConfig(b.name, b.min_z, b.max_z) for b in DEFAULT_REDSHIFT_BINS
         ]
     )
-    uniform_spread: bool = True  # If True, divide each bin into K sub-bins to ensure even spread
+    uniform_spread: bool = (
+        True  # If True, divide each bin into K sub-bins to ensure even spread
+    )
     k_subbins: int = 5  # Number of equal sub-bins per bucket
     seed: int = 42
     sdss_catalog: str = "hf://datasets/UniverseTBD/mmu_sdss_sdss"
     desi_catalog: str = "hf://datasets/UniverseTBD/mmu_desi_edr_sv3"
-    oversample_factor: float = 2.0  # Buffer ratio to account for blacklist filtering and spatial crossmatch
-    strict: bool = False  # If True, raise an error if any cell yields fewer than requested samples
+    oversample_factor: float = (
+        2.0  # Buffer ratio to account for blacklist filtering and spatial crossmatch
+    )
+    strict: bool = (
+        False  # If True, raise an error if any cell yields fewer than requested samples
+    )
     training_data: str = "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
     output: str = "data/benchmarks/redshift.parquet"
 
@@ -192,7 +198,13 @@ class RedshiftBenchmark(BenchmarkTask):
             if df is not None and not df.empty:
                 return df
         except Exception as exc:
-            logger.error("DataLab %s query failed for z in [%.3f, %.3f): %s", survey.upper(), z_min, z_max, exc)
+            logger.error(
+                "DataLab %s query failed for z in [%.3f, %.3f): %s",
+                survey.upper(),
+                z_min,
+                z_max,
+                exc,
+            )
 
         return pd.DataFrame()
 
@@ -218,7 +230,7 @@ class RedshiftBenchmark(BenchmarkTask):
         for b in self.bins:
             subbins = self._subdivide_bin(b, self.samples_per_cell)
 
-            for (sub_min, sub_max, alloc) in subbins:
+            for sub_min, sub_max, alloc in subbins:
                 query_limit = max(
                     int(np.ceil(alloc * self.config.oversample_factor)),
                     alloc + 2,
@@ -261,7 +273,15 @@ class RedshiftBenchmark(BenchmarkTask):
             return []
 
         df_candidates = pd.concat(all_candidates, ignore_index=True)
-        keep_cols = ["candidate_id", "ra", "dec", "z_cand", "bin_name", "bin_min", "bin_max"]
+        keep_cols = [
+            "candidate_id",
+            "ra",
+            "dec",
+            "z_cand",
+            "bin_name",
+            "bin_min",
+            "bin_max",
+        ]
         df_candidates = df_candidates[keep_cols].copy()
 
         logger.info(
@@ -292,7 +312,9 @@ class RedshiftBenchmark(BenchmarkTask):
 
         # Strict ID Verification:
         # Guarantee matched MMU observation is the exact physical object
-        mmu_id_col = "object_id" if "object_id" in matched_df.columns else "object_id_mmu"
+        mmu_id_col = (
+            "object_id" if "object_id" in matched_df.columns else "object_id_mmu"
+        )
         if mmu_id_col in matched_df.columns:
             matched_df["clean_mmu_id"] = matched_df[mmu_id_col].apply(clean_id)
             initial_count = len(matched_df)
@@ -330,7 +352,9 @@ class RedshiftBenchmark(BenchmarkTask):
                     spec_dict = extract_spectrum_dict(row["spectrum"])
                 except Exception as exc:
                     logger.warning(
-                        "Error parsing spectrum for object %s: %s", row["candidate_id"], exc
+                        "Error parsing spectrum for object %s: %s",
+                        row["candidate_id"],
+                        exc,
                     )
                     continue
 
@@ -427,4 +451,3 @@ class RedshiftBenchmark(BenchmarkTask):
             df_summary.groupby(["survey", "redshift_bin"]).size().to_string(),
         )
         return dest_path
-
