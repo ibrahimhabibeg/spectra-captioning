@@ -140,11 +140,19 @@ def save_benchmark_dataset(records: list[dict[str, Any]], output_path: Path | st
 
 def extract_spectrum_dict(spec_obj: Any) -> dict[str, np.ndarray]:
     """Extract a dictionary of 1D numpy arrays from an LSDB spectrum cell."""
-    if hasattr(spec_obj, "to_dict"):
+    if isinstance(spec_obj, pd.Series):
+        if "spectrum" in spec_obj.index:
+            spec_obj = spec_obj["spectrum"]
+        elif "spectrum_mmu" in spec_obj.index:
+            spec_obj = spec_obj["spectrum_mmu"]
+
+    if hasattr(spec_obj, "columns"):
         # Nested pandas DataFrame or NestedFrame
         return {str(col): np.array(spec_obj[col].values) for col in spec_obj.columns}
     if isinstance(spec_obj, dict):
         return {str(k): np.array(v) for k, v in spec_obj.items()}
+    if hasattr(spec_obj, "to_dict"):
+        return {str(k): np.array(v) for k, v in spec_obj.to_dict().items()}
     raise TypeError(f"Unexpected spectrum object format: {type(spec_obj)}")
 
 

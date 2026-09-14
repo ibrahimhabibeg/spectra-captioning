@@ -44,6 +44,7 @@ low_snr_max: 6.0
 negative_snr_max: 2.0
 
 seed: 42
+oversample_factor: 2.5
 strict: false
 training_data: "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
 output: "data/benchmarks/emission_lines.parquet"

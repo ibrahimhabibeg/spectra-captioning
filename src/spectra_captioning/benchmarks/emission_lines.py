@@ -16,6 +16,7 @@ Targets are stratified across 4 distinct evaluation regimes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import difflib
 import hashlib
 import logging
 from pathlib import Path
@@ -60,20 +61,23 @@ REST_WAVELENGTHS: dict[str, float] = {
     "CIV_1549": 1549.1,
 }
 
-# Physical multiplets / neighbor pairs for targeted distractor generation
-NEIGHBOR_PAIRS: dict[str, list[str]] = {
-    "HALPHA": ["NII_6584", "NII_6548"],
-    "NII_6584": ["HALPHA", "NII_6548"],
-    "NII_6548": ["HALPHA", "NII_6584"],
-    "OIII_5007": ["OIII_4959"],
-    "OIII_4959": ["OIII_5007"],
-    "OII_3726": ["OII_3729"],
-    "OII_3729": ["OII_3726"],
-    "SII_6716": ["SII_6731"],
-    "SII_6731": ["SII_6716"],
-    "MGII_2796": ["MGII_2803"],
-    "MGII_2803": ["MGII_2796"],
-}
+def validate_line_pool(line_pool: list[str]) -> None:
+    """Validate that every line in the pool is in REST_WAVELENGTHS, suggesting typo fixes."""
+    supported = set(REST_WAVELENGTHS.keys())
+    invalid = [l for l in line_pool if l not in supported]
+    if invalid:
+        errors = []
+        for bad in invalid:
+            matches = difflib.get_close_matches(
+                bad.upper(), supported, n=1, cutoff=0.5
+            )
+            suggestion = f" (did you mean '{matches[0]}' ?)" if matches else ""
+            errors.append(f"'{bad}'{suggestion}")
+        raise ValueError(
+            f"Unsupported emission line(s) specified in line_pool: {', '.join(errors)}. "
+            f"Supported emission lines are:\n{', '.join(sorted(supported))}"
+        )
+
 
 DEFAULT_REGIMES = [
     "pure_negative",
@@ -102,7 +106,7 @@ class EmissionLinesConfig:
     negative_snr_max: float = 2.0
 
     seed: int = 42
-    oversample_factor: float = 1.5
+    oversample_factor: float = 2.5
     strict: bool = False
     training_data: str = "data/crossmatch_cache/crossmatch_merged_1.0arcsec.parquet"
     output: str = "data/benchmarks/emission_lines.parquet"
@@ -122,7 +126,7 @@ class EmissionLinesConfig:
         return cls(**kwargs)
 
     def compute_regime_quotas(self) -> dict[str, int]:
-        """Compute exact integer quotas per regime, distributing remainders fairly."""
+        """Compute exact integer quotas per regime"""
         n_regimes = len(self.regimes)
         if n_regimes == 0:
             raise ValueError("At least one regime must be specified.")
@@ -150,6 +154,8 @@ class EmissionLinesBenchmark:
             raise ValueError(
                 f"Emission lines extraction is strictly available only for DESI, got: {self.config.survey}"
             )
+
+        validate_line_pool(self.config.line_pool)
 
     def _ensure_catalog_file(self) -> Path:
         """Download or locate the FastSpecFit FITS catalog."""
@@ -182,17 +188,21 @@ class EmissionLinesBenchmark:
         logger.info("Reading FastSpecFit catalog: %s", fits_path)
         f = fitsio.FITS(str(fits_path))
         if "FASTSPEC" not in f or "METADATA" not in f:
-            raise ValueError(f"FITS file {fits_path} missing required HDUs 'FASTSPEC' and 'METADATA'")
+            raise ValueError(
+                f"FITS file {fits_path} missing required HDUs 'FASTSPEC' and 'METADATA'"
+            )
 
         meta_hdu = f["METADATA"]
         meta_cols = ["TARGETID", "RA", "DEC", "Z"]
         meta_data = meta_hdu.read(columns=meta_cols)
-        df_meta = pd.DataFrame({
-            "targetid": np.array(meta_data["TARGETID"], dtype=np.int64),
-            "ra": np.array(meta_data["RA"], dtype=np.float64),
-            "dec": np.array(meta_data["DEC"], dtype=np.float64),
-            "z": np.array(meta_data["Z"], dtype=np.float64),
-        })
+        df_meta = pd.DataFrame(
+            {
+                "targetid": np.array(meta_data["TARGETID"], dtype=np.int64),
+                "ra": np.array(meta_data["RA"], dtype=np.float64),
+                "dec": np.array(meta_data["DEC"], dtype=np.float64),
+                "z": np.array(meta_data["Z"], dtype=np.float64),
+            }
+        )
 
         # Apply training set blacklist
         blacklist = load_training_blacklist(self.config.training_data)
@@ -260,25 +270,31 @@ class EmissionLinesBenchmark:
         z_vals = df_targets["z"].values
         in_window: dict[str, np.ndarray] = {}
         for line in pool:
-            rest_wl = REST_WAVELENGTHS.get(line, 5000.0)
+            rest_wl = REST_WAVELENGTHS[line]
             obs_wl = (1.0 + z_vals) * rest_wl
             in_window[line] = (obs_wl >= 3600.0) & (obs_wl <= 9800.0)
 
         # Identify qualifying targets for each regime
-        regime_candidates: dict[str, list[int]] = {reg: [] for reg in self.config.regimes}
+        regime_candidates: dict[str, list[int]] = {
+            reg: [] for reg in self.config.regimes
+        }
 
         for i in range(n_targets):
             obj_snrs = {line: snrs[line][i] for line in pool}
             obj_window = {line: in_window[line][i] for line in pool}
 
-            detected = [l for l, s in obj_snrs.items() if s >= self.config.snr_threshold]
+            detected = [
+                l for l, s in obj_snrs.items() if s >= self.config.snr_threshold
+            ]
             strong = [l for l, s in obj_snrs.items() if s >= self.config.high_snr_min]
             marginal = [
                 l
                 for l, s in obj_snrs.items()
                 if self.config.low_snr_min <= s < self.config.low_snr_max
             ]
-            absent = [l for l, s in obj_snrs.items() if s < self.config.negative_snr_max]
+            absent = [
+                l for l, s in obj_snrs.items() if s < self.config.negative_snr_max
+            ]
 
             # 1. Pure Negative: no lines detected at all, with in-window absent lines
             if "pure_negative" in regime_candidates:
@@ -304,18 +320,32 @@ class EmissionLinesBenchmark:
 
         logger.info("Eligible candidates per regime:")
         for reg, cand_indices in regime_candidates.items():
-            logger.info("  - %-25s: %d available (want %d)", reg, len(cand_indices), self.quotas[reg])
+            logger.info(
+                "  - %-25s: %d available (want %d)",
+                reg,
+                len(cand_indices),
+                self.quotas[reg],
+            )
 
         # Sample and synthesize queries
         sampled_records: list[dict[str, Any]] = []
+        used_target_ids: set[int] = set()
 
         for reg in self.config.regimes:
             want = self.quotas[reg]
             oversample_want = int(want * self.config.oversample_factor)
-            cand_indices = list(regime_candidates[reg])
+
+            # Filter out targets already selected in a previous regime
+            cand_indices = [
+                idx
+                for idx in regime_candidates[reg]
+                if int(df_targets.iloc[idx]["targetid"]) not in used_target_ids
+            ]
 
             # Deterministic seeded shuffle
-            reg_seed = self.config.seed + int(hashlib.md5(reg.encode()).hexdigest()[:6], 16)
+            reg_seed = self.config.seed + int(
+                hashlib.md5(reg.encode()).hexdigest()[:6], 16
+            )
             rng = random.Random(reg_seed)
             rng.shuffle(cand_indices)
 
@@ -330,6 +360,8 @@ class EmissionLinesBenchmark:
 
             for idx in selected_indices:
                 row_meta = df_targets.iloc[idx]
+                tid = int(row_meta["targetid"])
+                used_target_ids.add(tid)
                 obj_snrs = {line: snrs[line][idx] for line in pool}
                 obj_flux = {line: fluxes[line][idx] for line in pool}
                 obj_window = {line: in_window[line][idx] for line in pool}
@@ -338,15 +370,17 @@ class EmissionLinesBenchmark:
                     reg, obj_snrs, obj_flux, obj_window, rng
                 )
 
-                sampled_records.append({
-                    "candidate_id": int(row_meta["targetid"]),
-                    "ra": float(row_meta["ra"]),
-                    "dec": float(row_meta["dec"]),
-                    "z": float(row_meta["z"]),
-                    "regime": reg,
-                    "candidate_query_lines": query_lines,
-                    "ground_truth": ground_truth,
-                })
+                sampled_records.append(
+                    {
+                        "candidate_id": tid,
+                        "ra": float(row_meta["ra"]),
+                        "dec": float(row_meta["dec"]),
+                        "z": float(row_meta["z"]),
+                        "regime": reg,
+                        "candidate_query_lines": query_lines,
+                        "ground_truth": ground_truth,
+                    }
+                )
 
         return sampled_records
 
@@ -363,7 +397,9 @@ class EmissionLinesBenchmark:
         detected = [l for l, s in obj_snrs.items() if s >= self.config.snr_threshold]
         strong = [l for l, s in obj_snrs.items() if s >= self.config.high_snr_min]
         marginal = [
-            l for l, s in obj_snrs.items() if self.config.low_snr_min <= s < self.config.low_snr_max
+            l
+            for l, s in obj_snrs.items()
+            if self.config.low_snr_min <= s < self.config.low_snr_max
         ]
         absent = [l for l, s in obj_snrs.items() if s < self.config.negative_snr_max]
 
@@ -395,30 +431,18 @@ class EmissionLinesBenchmark:
             num_det = min(2, len(det_pool))
             chosen_det = rng.sample(det_pool, num_det)
 
-            # Prioritize neighbor distractors if any exist
-            neighbor_distractors: list[str] = []
-            for det_line in chosen_det:
-                neighbors = NEIGHBOR_PAIRS.get(det_line, [])
-                for n in neighbors:
-                    if n in absent and n not in neighbor_distractors:
-                        neighbor_distractors.append(n)
-
-            chosen_abs: list[str] = []
-            if neighbor_distractors:
-                chosen_abs.append(rng.choice(neighbor_distractors))
-
-            # Fill remaining distractors from general absent lines
-            rem_abs = [l for l in absent if l not in chosen_abs]
-            needed_abs = max(1, 4 - len(chosen_det) - len(chosen_abs))
-            if rem_abs:
-                chosen_abs.extend(rng.sample(rem_abs, min(needed_abs, len(rem_abs))))
+            # Randomly sample distractors from the absent lines
+            needed_abs = max(1, 4 - len(chosen_det))
+            chosen_abs = rng.sample(absent, min(needed_abs, len(absent)))
 
             query_lines = chosen_det + chosen_abs
 
         elif regime == "low_snr_marginal":
             # Pick 1-2 marginal lines
             num_mar = min(2, len(marginal))
-            chosen_mar = rng.sample(marginal, num_mar) if marginal else rng.sample(detected, 1)
+            chosen_mar = (
+                rng.sample(marginal, num_mar) if marginal else rng.sample(detected, 1)
+            )
 
             # Pick 1-2 absent lines
             needed_abs = max(1, 4 - len(chosen_mar))
@@ -430,8 +454,12 @@ class EmissionLinesBenchmark:
         rng.shuffle(query_lines)
 
         # Ground truth details
-        detected_in_query = [l for l in query_lines if obj_snrs[l] >= self.config.snr_threshold]
-        absent_in_query = [l for l in query_lines if obj_snrs[l] < self.config.snr_threshold]
+        detected_in_query = [
+            l for l in query_lines if obj_snrs[l] >= self.config.snr_threshold
+        ]
+        absent_in_query = [
+            l for l in query_lines if obj_snrs[l] < self.config.snr_threshold
+        ]
 
         line_details: dict[str, dict[str, Any]] = {}
         for l in query_lines:
@@ -450,19 +478,43 @@ class EmissionLinesBenchmark:
 
         return query_lines, ground_truth
 
-    def _crossmatch_mmu(self, candidate_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _crossmatch_mmu(
+        self, candidate_records: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Crossmatch candidate targets against UniverseTBD/mmu_desi_edr_sv3 via LSDB."""
         if not candidate_records:
             return []
 
-        df_candidates = pd.DataFrame(candidate_records)
+        # Retain candidate metadata mapping in memory to prevent PyArrow nested struct
+        # schema mismatches across Dask partitions in lsdb.from_dataframe
+        cand_metadata: dict[tuple[int, str], dict[str, Any]] = {
+            (rec["candidate_id"], rec["regime"]): {
+                "candidate_query_lines": rec["candidate_query_lines"],
+                "ground_truth": rec["ground_truth"],
+            }
+            for rec in candidate_records
+        }
+
+        # Pass only simple scalar columns to LSDB
+        df_candidates = pd.DataFrame([
+            {
+                "candidate_id": rec["candidate_id"],
+                "ra": rec["ra"],
+                "dec": rec["dec"],
+                "z": rec["z"],
+                "regime": rec["regime"],
+            }
+            for rec in candidate_records
+        ])
         logger.info(
             "Crossmatching %d candidate targets against MMU catalog (%s)...",
             len(df_candidates),
             DESI_MMU_CATALOG_URL,
         )
 
-        cat_points = lsdb.from_dataframe(df_candidates, ra_column="ra", dec_column="dec")
+        cat_points = lsdb.from_dataframe(
+            df_candidates, ra_column="ra", dec_column="dec"
+        )
         cat_mmu = lsdb.open_catalog(DESI_MMU_CATALOG_URL)
 
         matched = cat_points.crossmatch(
@@ -473,16 +525,21 @@ class EmissionLinesBenchmark:
             log_changes=False,
         )
 
-        logger.info("Computing spatial crossmatch (loading intersecting HEALPix partitions)...")
+        logger.info(
+            "Computing spatial crossmatch (loading intersecting HEALPix partitions)..."
+        )
         matched_df = matched.compute()
 
         # Strict ID verification
-        mmu_id_col = "object_id" if "object_id" in matched_df.columns else "object_id_mmu"
+        mmu_id_col = (
+            "object_id" if "object_id" in matched_df.columns else "object_id_mmu"
+        )
         if mmu_id_col in matched_df.columns:
             matched_df["clean_mmu_id"] = matched_df[mmu_id_col].apply(clean_id)
             initial_count = len(matched_df)
             matched_df = matched_df[
-                matched_df["candidate_id"].apply(clean_id) == matched_df["clean_mmu_id"]
+                matched_df["candidate_id"].apply(clean_id)
+                == matched_df["clean_mmu_id"]
             ].copy()
             logger.info(
                 "Strict ID verification: retained %d of %d matches (eliminated %d neighbor mismatches).",
@@ -506,15 +563,22 @@ class EmissionLinesBenchmark:
                 logger.warning(msg)
 
             for _, row in reg_selected.iterrows():
-                spec_dict = extract_spectrum_dict(row)
-                final_rows.append({
-                    "object_id": int(row["candidate_id"]),
-                    "survey": "desi",
-                    "regime": row["regime"],
-                    "candidate_query_lines": list(row["candidate_query_lines"]),
-                    "ground_truth": row["ground_truth"],
-                    "spectrum": spec_dict,
-                })
+                cid = int(row["candidate_id"])
+                meta = cand_metadata.get((cid, reg), {})
+                spec_cell = (
+                    row["spectrum"] if "spectrum" in row else row.get("spectrum_mmu", None)
+                )
+                spec_dict = extract_spectrum_dict(spec_cell)
+                final_rows.append(
+                    {
+                        "object_id": cid,
+                        "survey": "desi",
+                        "regime": reg,
+                        "candidate_query_lines": list(meta.get("candidate_query_lines", [])),
+                        "ground_truth": meta.get("ground_truth", {}),
+                        "spectrum": spec_dict,
+                    }
+                )
 
         return final_rows
 
@@ -532,7 +596,9 @@ class EmissionLinesBenchmark:
         final_records = self._crossmatch_mmu(candidate_records)
 
         result_df = pd.DataFrame(final_records)
-        logger.info("Successfully generated %d emission line benchmark records.", len(result_df))
+        logger.info(
+            "Successfully generated %d emission line benchmark records.", len(result_df)
+        )
         return result_df
 
     def save(self, output_path: str | Path | None = None) -> Path:

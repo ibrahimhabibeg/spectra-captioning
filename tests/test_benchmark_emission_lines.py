@@ -14,7 +14,6 @@ from spectra_captioning.benchmarks.base import (
 from spectra_captioning.benchmarks.emission_lines import (
     DEFAULT_REGIMES,
     REST_WAVELENGTHS,
-    NEIGHBOR_PAIRS,
     EmissionLinesBenchmark,
     EmissionLinesConfig,
 )
@@ -96,6 +95,27 @@ def test_non_desi_rejection():
         assert "strictly available only for DESI" in str(e)
 
 
+def test_unsupported_line_validation():
+    # Typo check: "HALPAH" -> suggestion "HALPHA"
+    try:
+        EmissionLinesBenchmark(EmissionLinesConfig(line_pool=["HALPAH", "HBETA"]))
+        assert False, "Should have raised ValueError for typo line 'HALPAH'"
+    except ValueError as e:
+        err_msg = str(e)
+        assert "Unsupported emission line(s)" in err_msg
+        assert "HALPAH" in err_msg
+        assert "did you mean 'HALPHA'" in err_msg
+
+    # Unrecognized line
+    try:
+        EmissionLinesBenchmark(EmissionLinesConfig(line_pool=["NONEXISTENT_LINE_XYZ"]))
+        assert False, "Should have raised ValueError for non-existent line"
+    except ValueError as e:
+        err_msg = str(e)
+        assert "Unsupported emission line(s)" in err_msg
+        assert "NONEXISTENT_LINE_XYZ" in err_msg
+
+
 def test_query_synthesis_pure_negative():
     bench = EmissionLinesBenchmark()
     rng = random.Random(42)
@@ -139,15 +159,13 @@ def test_query_synthesis_high_snr_positive():
         assert gt["line_details"][l]["detected"] is True
 
 
-def test_query_synthesis_partial_with_neighbor_distractor():
+def test_query_synthesis_partial_with_distractors():
     bench = EmissionLinesBenchmark()
     rng = random.Random(42)
 
-    # HALPHA strong, but NII_6584 (its neighbor) is strictly absent!
+    # HALPHA strong, others absent
     obj_snrs = {l: 0.1 for l in bench.config.line_pool}
     obj_snrs["HALPHA"] = 20.0
-    obj_snrs["NII_6584"] = 0.5  # Neighbor distractor
-    obj_snrs["CIV_1549"] = 0.2  # Another distractor
 
     obj_flux = {l: 1.0 for l in bench.config.line_pool}
     obj_window = {l: True for l in bench.config.line_pool}
@@ -155,11 +173,13 @@ def test_query_synthesis_partial_with_neighbor_distractor():
     query_lines, gt = bench._synthesize_query(
         "partial_with_distractors", obj_snrs, obj_flux, obj_window, rng
     )
-    # Both HALPHA and NII_6584 should be in query_lines
+    # HALPHA should be detected, and distractors should be from absent lines
     assert "HALPHA" in query_lines
-    assert "NII_6584" in query_lines  # Neighbor distractor successfully injected
     assert "HALPHA" in gt["detected_lines"]
-    assert "NII_6584" in gt["absent_lines"]
+    assert len(gt["absent_lines"]) >= 1
+    for a in gt["absent_lines"]:
+        assert a in query_lines
+        assert obj_snrs[a] < bench.config.snr_threshold
 
 
 def test_query_synthesis_low_snr_marginal():
@@ -244,6 +264,10 @@ def test_real_catalog_classification():
     regimes = {s["regime"] for s in sampled}
     assert regimes == set(cfg.regimes)
 
+    # Verify all sampled candidates across regimes are unique (without replacement)
+    cids = [s["candidate_id"] for s in sampled]
+    assert len(cids) == len(set(cids)), "All sampled candidates across regimes must be unique!"
+
     for s in sampled:
         assert 3 <= len(s["candidate_query_lines"]) <= 5
         assert "detected_lines" in s["ground_truth"]
@@ -263,9 +287,10 @@ if __name__ == "__main__":
     test_emission_lines_config_yaml_loading()
     test_regime_quotas_and_remainders()
     test_non_desi_rejection()
+    test_unsupported_line_validation()
     test_query_synthesis_pure_negative()
     test_query_synthesis_high_snr_positive()
-    test_query_synthesis_partial_with_neighbor_distractor()
+    test_query_synthesis_partial_with_distractors()
     test_query_synthesis_low_snr_marginal()
     test_dataset_serialization()
     test_real_catalog_classification()
